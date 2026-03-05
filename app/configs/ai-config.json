@@ -1,5 +1,5 @@
 {
   "provider": "OpenAI",
   "model_name": "gpt-5.2",
-  "playstyle": "pro"
+  "playstyle": "exploit"
 }
