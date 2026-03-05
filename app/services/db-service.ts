@@ -1,28 +1,25 @@
-import { Database, open } from 'sqlite'
-import sqlite3 from 'sqlite3';
+import Database from "better-sqlite3";
+import type BetterSqlite3 from "better-sqlite3";
 
 export class DBService {
-    private file_name: string;
-    private db!: Database<sqlite3.Database, sqlite3.Statement>;
+  private file_name: string;
+  private db!: BetterSqlite3.Database;
 
-    constructor(file_name: string) {
-        this.file_name = file_name;
-    }
+  constructor(file_name: string) {
+    this.file_name = file_name;
+  }
 
-    async init(): Promise<void> {
-        this.db = await open<sqlite3.Database, sqlite3.Statement>({
-            filename: this.file_name,
-            driver: sqlite3.Database
-        })
-    }
-    
-    async createTables(): Promise<void> {
-        await this.createPlayerTable();
-    }
-    
-    async createPlayerTable(): Promise<void> {
-        try {
-            await this.db.exec(`
+  async init(): Promise<void> {
+    this.db = new Database(this.file_name);
+  }
+
+  async createTables(): Promise<void> {
+    await this.createPlayerTable();
+  }
+
+  async createPlayerTable(): Promise<void> {
+    try {
+      this.db.exec(`
                 CREATE TABLE IF NOT EXISTS PlayerStats (
                     name TEXT PRIMARY KEY NOT NULL,
                     total_hands INT NOT NULL,
@@ -33,26 +30,25 @@ export class DBService {
                     pfr_stat REAL AS (pfr_hands / CAST((total_hands - walks) AS REAL))
                 );
             `);
-        } catch (err) {
-            console.log("Failed to create player table", err.message);
-        }
+    } catch (err) {
+      console.log("Failed to create player table", err.message);
     }
-    
-    async close(): Promise<void> {
-        await this.db.close();
-    }
-    
+  }
 
-    async query(sql: string, params: Array<any>): Promise<Array<string>> {
-        var rows : string[] = [];
-        await this.db.each(sql, params, (err: any, row: string) => {
-            if (err) {
-                throw new Error(err.message);
-            }
-            rows.push(row);
-        });
-        return rows;
+  async close(): Promise<void> {
+    this.db.close();
+  }
+
+  async query(sql: string, params: Array<any>): Promise<Array<any>> {
+    const stmt = this.db.prepare(sql);
+    const sqlTrimmed = sql.trim().toUpperCase();
+    if (sqlTrimmed.startsWith("SELECT")) {
+      return stmt.all(...params) as any[];
+    } else {
+      stmt.run(...params);
+      return [];
     }
+  }
 }
 
 const db_service = new DBService("./app/pokernow-gpt.db");
