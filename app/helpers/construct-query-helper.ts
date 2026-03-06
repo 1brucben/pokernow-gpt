@@ -183,7 +183,7 @@ function defineStats(
   hero_name: string,
 ): string {
   let query =
-    "Here are the stats of the other players in the pot, defined in the format {position: Hands = total_hands, VPIP = vpip%, PFR = pfr%, 3Bet = 3bet%, Fold_to_3Bet = fold_to_3bet%, AF = aggression_factor, AFq = aggression_freq%, CBet = cbet%, Fold_to_CBet = fold_to_cbet%, WTSD = wtsd%}:\n";
+    "Here are the stats of the other players in the pot, defined in the format {position: Hands = total_hands, VPIP = vpip%, PFR = pfr%, 3Bet = 3bet%, Fold_to_3Bet = fold_to_3bet%, AF = aggression_factor, AFq = aggression_freq%, CBet = cbet%, Fold_to_CBet = fold_to_cbet%, 2ndBarrel = second_barrel%, Fold_to_2ndBarrel = fold_to_2nd_barrel%, 3rdBarrel = third_barrel%, Fold_to_3rdBarrel = fold_to_3rd_barrel%, DonkBet = donk_bet%, CheckRaise = check_raise%, WTSD = wtsd%}:\n";
   let player_ids = Array.from(player_positions.keys());
 
   for (var i = 0; i < player_ids.length; i++) {
@@ -194,7 +194,7 @@ function defineStats(
     }
     const player_stats = table.getPlayerStatsFromName(player_name);
     const player_pos = table.getPlayerPositionFromId(player_id);
-    let curr = `{${player_pos}: Hands = ${player_stats.getTotalHands()}, VPIP = ${player_stats.computeVPIPStat().toFixed(1)}, PFR = ${player_stats.computePFRStat().toFixed(1)}, 3Bet = ${player_stats.computeThreeBetStat().toFixed(1)}, Fold_to_3Bet = ${player_stats.computeFoldToThreeBetStat().toFixed(1)}, AF = ${player_stats.computeAF().toFixed(1)}, AFq = ${player_stats.computeAFq().toFixed(1)}, CBet = ${player_stats.computeCBetStat().toFixed(1)}, Fold_to_CBet = ${player_stats.computeFoldToCBetStat().toFixed(1)}, WTSD = ${player_stats.computeWTSDStat().toFixed(1)}}`;
+    let curr = `{${player_pos}: Hands = ${player_stats.getTotalHands()}, VPIP = ${player_stats.computeVPIPStat().toFixed(1)}, PFR = ${player_stats.computePFRStat().toFixed(1)}, 3Bet = ${player_stats.computeThreeBetStat().toFixed(1)}, Fold_to_3Bet = ${player_stats.computeFoldToThreeBetStat().toFixed(1)}, AF = ${player_stats.computeAF().toFixed(1)}, AFq = ${player_stats.computeAFq().toFixed(1)}, CBet = ${player_stats.computeCBetStat().toFixed(1)}, Fold_to_CBet = ${player_stats.computeFoldToCBetStat().toFixed(1)}, 2ndBarrel = ${player_stats.computeSecondBarrelStat().toFixed(1)}, Fold_to_2ndBarrel = ${player_stats.computeFoldToSecondBarrelStat().toFixed(1)}, 3rdBarrel = ${player_stats.computeThirdBarrelStat().toFixed(1)}, Fold_to_3rdBarrel = ${player_stats.computeFoldToThirdBarrelStat().toFixed(1)}, DonkBet = ${player_stats.computeDonkBetStat().toFixed(1)}, CheckRaise = ${player_stats.computeCheckRaiseStat().toFixed(1)}, WTSD = ${player_stats.computeWTSDStat().toFixed(1)}}`;
     if (i != player_ids.length - 1) {
       curr = curr.concat("\n");
     }

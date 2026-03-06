@@ -104,6 +104,29 @@ export async function postProcessLogsAfterHand(
   let flop_bet_before_pfa = false; // true if someone donk-bets before PFA acts
   let cbet_happened = false;
 
+  // Barrel tracking (2nd barrel = turn cbet, 3rd barrel = river cbet)
+  let pfa_acted_on_turn = false;
+  let turn_bet_before_pfa = false;
+  let second_barrel_happened = false;
+  let pfa_acted_on_river = false;
+  let river_bet_before_pfa = false;
+  let third_barrel_happened = false;
+
+  // Track whether the c-bet / barrel was raised (disables subsequent barrel tracking)
+  let flop_cbet_was_raised = false;
+  let turn_barrel_was_raised = false;
+
+  // Players who called the flop c-bet / turn barrel (for fold-to-barrel tracking)
+  const callers_of_flop_cbet = new Set<string>();
+  const callers_of_turn_barrel = new Set<string>();
+
+  // Donk bet tracking per street (non-PFA bets into PFA before PFA acts)
+  // (flop donk bet is already partially detected via flop_bet_before_pfa)
+
+  // Check-raise tracking: per-street, who checked and then might raise
+  const checked_this_street = new Set<string>();
+  let bet_happened_this_street = false;
+
   // 3-Bet tracking: count preflop raise actions to detect 3-bets
   let preflop_raise_count = 0;
   let first_raiser: string | null = null; // the open-raiser (for fold-to-3-bet tracking)
@@ -127,6 +150,9 @@ export async function postProcessLogsAfterHand(
         }
       }
       current_street = street_name.toLowerCase();
+      // Reset per-street check-raise tracking
+      checked_this_street.clear();
+      bet_happened_this_street = false;
       continue;
     }
 
@@ -213,12 +239,45 @@ export async function postProcessLogsAfterHand(
           );
         }
 
-        // C-bet tracking (flop only)
+        // --- Check-raise tracking (any post-flop street) ---
+        if (action === Action.CHECK) {
+          checked_this_street.add(player_id);
+        }
+        if (action === Action.BET || action === Action.RAISE) {
+          bet_happened_this_street = true;
+        }
+        // If player previously checked this street and now raises → check-raise
+        if (action === Action.RAISE && checked_this_street.has(player_id)) {
+          table.setHandCheckRaiseOpportunity(player_id, true);
+          table.setHandCheckRaiseMade(player_id, true);
+        }
+        // A player who checks and then a bet happens has a check-raise opportunity
+        // (they'll get a chance to raise if action comes back)
+        // We track the opportunity when they actually face a bet after checking
+        if (
+          bet_happened_this_street &&
+          checked_this_street.has(player_id) &&
+          (action === Action.CALL || action === Action.FOLD) &&
+          !table.getHandCheckRaiseOpportunityValue(player_id)
+        ) {
+          table.setHandCheckRaiseOpportunity(player_id, true);
+        }
+
+        // --- C-bet tracking (flop only) ---
         if (current_street === "flop" && preflop_aggressor) {
           // Track if someone bet/raised before the PFA acts (donk-bet)
           if (!pfa_acted_on_flop && player_id !== preflop_aggressor) {
-            if (action === Action.BET || action === Action.RAISE) {
-              flop_bet_before_pfa = true;
+            // Only the first bet into PFA counts as a donk bet opportunity
+            if (!flop_bet_before_pfa) {
+              if (action === Action.BET || action === Action.RAISE) {
+                flop_bet_before_pfa = true;
+                // This is a donk bet
+                table.setHandDonkBetOpportunity(player_id, true);
+                table.setHandDonkBetMade(player_id, true);
+              } else if (action === Action.CHECK) {
+                // Player checked, they had a donk bet opportunity but didn't take it
+                table.setHandDonkBetOpportunity(player_id, true);
+              }
             }
           }
 
@@ -240,6 +299,93 @@ export async function postProcessLogsAfterHand(
             table.setHandFacedCbet(player_id, true);
             if (action === Action.FOLD) {
               table.setHandFoldedToCbet(player_id, true);
+            } else if (action === Action.CALL) {
+              callers_of_flop_cbet.add(player_id);
+            } else if (action === Action.RAISE) {
+              // C-bet was raised — PFA lost initiative, no further barrels
+              flop_cbet_was_raised = true;
+            }
+          }
+        }
+
+        // --- 2nd Barrel tracking (turn) ---
+        // Only track if PFA c-bet the flop AND the c-bet was not raised
+        if (
+          current_street === "turn" &&
+          preflop_aggressor &&
+          cbet_happened &&
+          !flop_cbet_was_raised
+        ) {
+          // Track if someone bets before PFA on the turn (donk bet on turn)
+          if (!pfa_acted_on_turn && player_id !== preflop_aggressor) {
+            if (action === Action.BET || action === Action.RAISE) {
+              turn_bet_before_pfa = true;
+            }
+          }
+
+          // PFA's first action on the turn
+          if (player_id === preflop_aggressor && !pfa_acted_on_turn) {
+            pfa_acted_on_turn = true;
+            if (!turn_bet_before_pfa) {
+              table.setHandSecondBarrelOpportunity(player_id, true);
+              if (action === Action.BET || action === Action.RAISE) {
+                second_barrel_happened = true;
+                table.setHandSecondBarrelMade(player_id, true);
+              }
+            }
+          }
+
+          // Track players facing the 2nd barrel
+          if (second_barrel_happened && player_id !== preflop_aggressor) {
+            // Only players who called the flop c-bet can face/fold to 2nd barrel
+            if (callers_of_flop_cbet.has(player_id)) {
+              table.setHandFacedSecondBarrel(player_id, true);
+              if (action === Action.FOLD) {
+                table.setHandFoldedToSecondBarrel(player_id, true);
+              } else if (action === Action.CALL) {
+                callers_of_turn_barrel.add(player_id);
+              } else if (action === Action.RAISE) {
+                // Turn barrel was raised — no 3rd barrel
+                turn_barrel_was_raised = true;
+              }
+            }
+          }
+        }
+
+        // --- 3rd Barrel tracking (river) ---
+        // Only track if PFA 2nd-barreled AND the turn barrel was not raised
+        if (
+          current_street === "river" &&
+          preflop_aggressor &&
+          second_barrel_happened &&
+          !turn_barrel_was_raised
+        ) {
+          // Track if someone bets before PFA on the river
+          if (!pfa_acted_on_river && player_id !== preflop_aggressor) {
+            if (action === Action.BET || action === Action.RAISE) {
+              river_bet_before_pfa = true;
+            }
+          }
+
+          // PFA's first action on the river
+          if (player_id === preflop_aggressor && !pfa_acted_on_river) {
+            pfa_acted_on_river = true;
+            if (!river_bet_before_pfa) {
+              table.setHandThirdBarrelOpportunity(player_id, true);
+              if (action === Action.BET || action === Action.RAISE) {
+                third_barrel_happened = true;
+                table.setHandThirdBarrelMade(player_id, true);
+              }
+            }
+          }
+
+          // Track players facing the 3rd barrel
+          if (third_barrel_happened && player_id !== preflop_aggressor) {
+            if (callers_of_turn_barrel.has(player_id)) {
+              table.setHandFacedThirdBarrel(player_id, true);
+              if (action === Action.FOLD) {
+                table.setHandFoldedToThirdBarrel(player_id, true);
+              }
             }
           }
         }

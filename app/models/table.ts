@@ -51,6 +51,22 @@ export class Table {
   private hand_folded_to_three_bet: Map<string, boolean>;
   private hand_postflop_checks: Map<string, number>;
 
+  // Per-hand barrel tracking (2nd barrel = turn, 3rd barrel = river)
+  private hand_second_barrel_opportunity: Map<string, boolean>;
+  private hand_second_barrel_made: Map<string, boolean>;
+  private hand_third_barrel_opportunity: Map<string, boolean>;
+  private hand_third_barrel_made: Map<string, boolean>;
+  private hand_faced_second_barrel: Map<string, boolean>;
+  private hand_folded_to_second_barrel: Map<string, boolean>;
+  private hand_faced_third_barrel: Map<string, boolean>;
+  private hand_folded_to_third_barrel: Map<string, boolean>;
+
+  // Per-hand donk bet and check-raise tracking
+  private hand_donk_bet_opportunity: Map<string, boolean>;
+  private hand_donk_bet_made: Map<string, boolean>;
+  private hand_check_raise_opportunity: Map<string, boolean>;
+  private hand_check_raise_made: Map<string, boolean>;
+
   constructor(player_service: PlayerService) {
     this.player_service = player_service;
 
@@ -89,6 +105,20 @@ export class Table {
     this.hand_faced_three_bet = new Map<string, boolean>();
     this.hand_folded_to_three_bet = new Map<string, boolean>();
     this.hand_postflop_checks = new Map<string, number>();
+
+    this.hand_second_barrel_opportunity = new Map<string, boolean>();
+    this.hand_second_barrel_made = new Map<string, boolean>();
+    this.hand_third_barrel_opportunity = new Map<string, boolean>();
+    this.hand_third_barrel_made = new Map<string, boolean>();
+    this.hand_faced_second_barrel = new Map<string, boolean>();
+    this.hand_folded_to_second_barrel = new Map<string, boolean>();
+    this.hand_faced_third_barrel = new Map<string, boolean>();
+    this.hand_folded_to_third_barrel = new Map<string, boolean>();
+
+    this.hand_donk_bet_opportunity = new Map<string, boolean>();
+    this.hand_donk_bet_made = new Map<string, boolean>();
+    this.hand_check_raise_opportunity = new Map<string, boolean>();
+    this.hand_check_raise_made = new Map<string, boolean>();
   }
 
   public getNumPlayers(): number {
@@ -213,6 +243,49 @@ export class Table {
     this.hand_postflop_checks.set(player_id, count);
   }
 
+  // --- Per-hand barrel stat setters ---
+  public setHandSecondBarrelOpportunity(player_id: string, val: boolean): void {
+    this.hand_second_barrel_opportunity.set(player_id, val);
+  }
+  public setHandSecondBarrelMade(player_id: string, val: boolean): void {
+    this.hand_second_barrel_made.set(player_id, val);
+  }
+  public setHandThirdBarrelOpportunity(player_id: string, val: boolean): void {
+    this.hand_third_barrel_opportunity.set(player_id, val);
+  }
+  public setHandThirdBarrelMade(player_id: string, val: boolean): void {
+    this.hand_third_barrel_made.set(player_id, val);
+  }
+  public setHandFacedSecondBarrel(player_id: string, val: boolean): void {
+    this.hand_faced_second_barrel.set(player_id, val);
+  }
+  public setHandFoldedToSecondBarrel(player_id: string, val: boolean): void {
+    this.hand_folded_to_second_barrel.set(player_id, val);
+  }
+  public setHandFacedThirdBarrel(player_id: string, val: boolean): void {
+    this.hand_faced_third_barrel.set(player_id, val);
+  }
+  public setHandFoldedToThirdBarrel(player_id: string, val: boolean): void {
+    this.hand_folded_to_third_barrel.set(player_id, val);
+  }
+
+  // --- Per-hand donk bet and check-raise setters ---
+  public setHandDonkBetOpportunity(player_id: string, val: boolean): void {
+    this.hand_donk_bet_opportunity.set(player_id, val);
+  }
+  public setHandDonkBetMade(player_id: string, val: boolean): void {
+    this.hand_donk_bet_made.set(player_id, val);
+  }
+  public setHandCheckRaiseOpportunity(player_id: string, val: boolean): void {
+    this.hand_check_raise_opportunity.set(player_id, val);
+  }
+  public getHandCheckRaiseOpportunityValue(player_id: string): boolean {
+    return this.hand_check_raise_opportunity.get(player_id) ?? false;
+  }
+  public setHandCheckRaiseMade(player_id: string, val: boolean): void {
+    this.hand_check_raise_made.set(player_id, val);
+  }
+
   public async processPlayers() {
     for (const player_id of this.id_to_action_num.keys()) {
       const player_name = this.getNameFromId(player_id);
@@ -276,6 +349,48 @@ export class Table {
           // Postflop checks (for AFq)
           const checks = this.hand_postflop_checks.get(player_id) ?? 0;
           if (checks > 0) player_stats.addPostflopChecks(checks);
+
+          // Barrel stats (2nd barrel = turn, 3rd barrel = river)
+          if (this.hand_second_barrel_opportunity.get(player_id)) {
+            player_stats.incrementSecondBarrelOpportunities();
+            if (this.hand_second_barrel_made.get(player_id)) {
+              player_stats.incrementSecondBarrelMade();
+            }
+          }
+          if (this.hand_third_barrel_opportunity.get(player_id)) {
+            player_stats.incrementThirdBarrelOpportunities();
+            if (this.hand_third_barrel_made.get(player_id)) {
+              player_stats.incrementThirdBarrelMade();
+            }
+          }
+          if (this.hand_faced_second_barrel.get(player_id)) {
+            player_stats.incrementFacedSecondBarrel();
+            if (this.hand_folded_to_second_barrel.get(player_id)) {
+              player_stats.incrementFoldedToSecondBarrel();
+            }
+          }
+          if (this.hand_faced_third_barrel.get(player_id)) {
+            player_stats.incrementFacedThirdBarrel();
+            if (this.hand_folded_to_third_barrel.get(player_id)) {
+              player_stats.incrementFoldedToThirdBarrel();
+            }
+          }
+
+          // Donk bet stats
+          if (this.hand_donk_bet_opportunity.get(player_id)) {
+            player_stats.incrementDonkBetOpportunities();
+            if (this.hand_donk_bet_made.get(player_id)) {
+              player_stats.incrementDonkBetMade();
+            }
+          }
+
+          // Check-raise stats
+          if (this.hand_check_raise_opportunity.get(player_id)) {
+            player_stats.incrementCheckRaiseOpportunities();
+            if (this.hand_check_raise_made.get(player_id)) {
+              player_stats.incrementCheckRaiseMade();
+            }
+          }
 
           player.updatePlayerStats(player_stats);
           await this.player_service.update(player_name, player_stats.toJSON());
@@ -535,5 +650,19 @@ export class Table {
     this.hand_faced_three_bet = new Map<string, boolean>();
     this.hand_folded_to_three_bet = new Map<string, boolean>();
     this.hand_postflop_checks = new Map<string, number>();
+
+    this.hand_second_barrel_opportunity = new Map<string, boolean>();
+    this.hand_second_barrel_made = new Map<string, boolean>();
+    this.hand_third_barrel_opportunity = new Map<string, boolean>();
+    this.hand_third_barrel_made = new Map<string, boolean>();
+    this.hand_faced_second_barrel = new Map<string, boolean>();
+    this.hand_folded_to_second_barrel = new Map<string, boolean>();
+    this.hand_faced_third_barrel = new Map<string, boolean>();
+    this.hand_folded_to_third_barrel = new Map<string, boolean>();
+
+    this.hand_donk_bet_opportunity = new Map<string, boolean>();
+    this.hand_donk_bet_made = new Map<string, boolean>();
+    this.hand_check_raise_opportunity = new Map<string, boolean>();
+    this.hand_check_raise_made = new Map<string, boolean>();
   }
 }

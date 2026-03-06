@@ -42,7 +42,19 @@ export class DBService {
                     three_bet_made INT NOT NULL DEFAULT 0,
                     faced_three_bet INT NOT NULL DEFAULT 0,
                     folded_to_three_bet INT NOT NULL DEFAULT 0,
-                    postflop_checks INT NOT NULL DEFAULT 0
+                    postflop_checks INT NOT NULL DEFAULT 0,
+                    second_barrel_opportunities INT NOT NULL DEFAULT 0,
+                    second_barrel_made INT NOT NULL DEFAULT 0,
+                    third_barrel_opportunities INT NOT NULL DEFAULT 0,
+                    third_barrel_made INT NOT NULL DEFAULT 0,
+                    faced_second_barrel INT NOT NULL DEFAULT 0,
+                    folded_to_second_barrel INT NOT NULL DEFAULT 0,
+                    faced_third_barrel INT NOT NULL DEFAULT 0,
+                    folded_to_third_barrel INT NOT NULL DEFAULT 0,
+                    donk_bet_opportunities INT NOT NULL DEFAULT 0,
+                    donk_bet_made INT NOT NULL DEFAULT 0,
+                    check_raise_opportunities INT NOT NULL DEFAULT 0,
+                    check_raise_made INT NOT NULL DEFAULT 0
                 );
             `);
       // Add new columns to existing tables (safe to run repeatedly)
@@ -60,6 +72,18 @@ export class DBService {
         { name: "faced_three_bet", type: "INT NOT NULL DEFAULT 0" },
         { name: "folded_to_three_bet", type: "INT NOT NULL DEFAULT 0" },
         { name: "postflop_checks", type: "INT NOT NULL DEFAULT 0" },
+        { name: "second_barrel_opportunities", type: "INT NOT NULL DEFAULT 0" },
+        { name: "second_barrel_made", type: "INT NOT NULL DEFAULT 0" },
+        { name: "third_barrel_opportunities", type: "INT NOT NULL DEFAULT 0" },
+        { name: "third_barrel_made", type: "INT NOT NULL DEFAULT 0" },
+        { name: "faced_second_barrel", type: "INT NOT NULL DEFAULT 0" },
+        { name: "folded_to_second_barrel", type: "INT NOT NULL DEFAULT 0" },
+        { name: "faced_third_barrel", type: "INT NOT NULL DEFAULT 0" },
+        { name: "folded_to_third_barrel", type: "INT NOT NULL DEFAULT 0" },
+        { name: "donk_bet_opportunities", type: "INT NOT NULL DEFAULT 0" },
+        { name: "donk_bet_made", type: "INT NOT NULL DEFAULT 0" },
+        { name: "check_raise_opportunities", type: "INT NOT NULL DEFAULT 0" },
+        { name: "check_raise_made", type: "INT NOT NULL DEFAULT 0" },
       ];
       for (const col of newColumns) {
         try {

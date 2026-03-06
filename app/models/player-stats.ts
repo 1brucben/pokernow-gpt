@@ -22,6 +22,24 @@ export class PlayerStats {
   private faced_three_bet: number;
   private folded_to_three_bet: number;
 
+  // Barrel stats (2nd barrel = turn cbet, 3rd barrel = river cbet)
+  private second_barrel_opportunities: number;
+  private second_barrel_made: number;
+  private third_barrel_opportunities: number;
+  private third_barrel_made: number;
+  private faced_second_barrel: number;
+  private folded_to_second_barrel: number;
+  private faced_third_barrel: number;
+  private folded_to_third_barrel: number;
+
+  // Donk bet stats
+  private donk_bet_opportunities: number;
+  private donk_bet_made: number;
+
+  // Check-raise stats
+  private check_raise_opportunities: number;
+  private check_raise_made: number;
+
   //TODO: player stats should use name not id
   //should have separate table mapping name to id in db that updates everytime new id is detected for particular name
   constructor(player_name: string, player_JSON?: any) {
@@ -44,6 +62,21 @@ export class PlayerStats {
       this.three_bet_made = player_JSON.three_bet_made ?? 0;
       this.faced_three_bet = player_JSON.faced_three_bet ?? 0;
       this.folded_to_three_bet = player_JSON.folded_to_three_bet ?? 0;
+      this.second_barrel_opportunities =
+        player_JSON.second_barrel_opportunities ?? 0;
+      this.second_barrel_made = player_JSON.second_barrel_made ?? 0;
+      this.third_barrel_opportunities =
+        player_JSON.third_barrel_opportunities ?? 0;
+      this.third_barrel_made = player_JSON.third_barrel_made ?? 0;
+      this.faced_second_barrel = player_JSON.faced_second_barrel ?? 0;
+      this.folded_to_second_barrel = player_JSON.folded_to_second_barrel ?? 0;
+      this.faced_third_barrel = player_JSON.faced_third_barrel ?? 0;
+      this.folded_to_third_barrel = player_JSON.folded_to_third_barrel ?? 0;
+      this.donk_bet_opportunities = player_JSON.donk_bet_opportunities ?? 0;
+      this.donk_bet_made = player_JSON.donk_bet_made ?? 0;
+      this.check_raise_opportunities =
+        player_JSON.check_raise_opportunities ?? 0;
+      this.check_raise_made = player_JSON.check_raise_made ?? 0;
     } else {
       this.total_hands = 0;
       this.walks = 0;
@@ -62,6 +95,18 @@ export class PlayerStats {
       this.three_bet_made = 0;
       this.faced_three_bet = 0;
       this.folded_to_three_bet = 0;
+      this.second_barrel_opportunities = 0;
+      this.second_barrel_made = 0;
+      this.third_barrel_opportunities = 0;
+      this.third_barrel_made = 0;
+      this.faced_second_barrel = 0;
+      this.folded_to_second_barrel = 0;
+      this.faced_third_barrel = 0;
+      this.folded_to_third_barrel = 0;
+      this.donk_bet_opportunities = 0;
+      this.donk_bet_made = 0;
+      this.check_raise_opportunities = 0;
+      this.check_raise_made = 0;
     }
   }
 
@@ -166,6 +211,96 @@ export class PlayerStats {
     this.folded_to_three_bet += 1;
   }
 
+  // --- Barrel stat getters/setters ---
+
+  public getSecondBarrelOpportunities(): number {
+    return this.second_barrel_opportunities;
+  }
+  public incrementSecondBarrelOpportunities(): void {
+    this.second_barrel_opportunities += 1;
+  }
+
+  public getSecondBarrelMade(): number {
+    return this.second_barrel_made;
+  }
+  public incrementSecondBarrelMade(): void {
+    this.second_barrel_made += 1;
+  }
+
+  public getThirdBarrelOpportunities(): number {
+    return this.third_barrel_opportunities;
+  }
+  public incrementThirdBarrelOpportunities(): void {
+    this.third_barrel_opportunities += 1;
+  }
+
+  public getThirdBarrelMade(): number {
+    return this.third_barrel_made;
+  }
+  public incrementThirdBarrelMade(): void {
+    this.third_barrel_made += 1;
+  }
+
+  public getFacedSecondBarrel(): number {
+    return this.faced_second_barrel;
+  }
+  public incrementFacedSecondBarrel(): void {
+    this.faced_second_barrel += 1;
+  }
+
+  public getFoldedToSecondBarrel(): number {
+    return this.folded_to_second_barrel;
+  }
+  public incrementFoldedToSecondBarrel(): void {
+    this.folded_to_second_barrel += 1;
+  }
+
+  public getFacedThirdBarrel(): number {
+    return this.faced_third_barrel;
+  }
+  public incrementFacedThirdBarrel(): void {
+    this.faced_third_barrel += 1;
+  }
+
+  public getFoldedToThirdBarrel(): number {
+    return this.folded_to_third_barrel;
+  }
+  public incrementFoldedToThirdBarrel(): void {
+    this.folded_to_third_barrel += 1;
+  }
+
+  // --- Donk bet stat getters/setters ---
+
+  public getDonkBetOpportunities(): number {
+    return this.donk_bet_opportunities;
+  }
+  public incrementDonkBetOpportunities(): void {
+    this.donk_bet_opportunities += 1;
+  }
+
+  public getDonkBetMade(): number {
+    return this.donk_bet_made;
+  }
+  public incrementDonkBetMade(): void {
+    this.donk_bet_made += 1;
+  }
+
+  // --- Check-raise stat getters/setters ---
+
+  public getCheckRaiseOpportunities(): number {
+    return this.check_raise_opportunities;
+  }
+  public incrementCheckRaiseOpportunities(): void {
+    this.check_raise_opportunities += 1;
+  }
+
+  public getCheckRaiseMade(): number {
+    return this.check_raise_made;
+  }
+  public incrementCheckRaiseMade(): void {
+    this.check_raise_made += 1;
+  }
+
   public getCbetOpportunities(): number {
     return this.cbet_opportunities;
   }
@@ -258,6 +393,54 @@ export class PlayerStats {
     return (this.folded_to_three_bet / this.faced_three_bet) * 100;
   }
 
+  /** 2nd Barrel % = second barrels made / second barrel opportunities * 100 */
+  public computeSecondBarrelStat(): number {
+    if (this.second_barrel_opportunities === 0) {
+      return 0;
+    }
+    return (this.second_barrel_made / this.second_barrel_opportunities) * 100;
+  }
+
+  /** 3rd Barrel % = third barrels made / third barrel opportunities * 100 */
+  public computeThirdBarrelStat(): number {
+    if (this.third_barrel_opportunities === 0) {
+      return 0;
+    }
+    return (this.third_barrel_made / this.third_barrel_opportunities) * 100;
+  }
+
+  /** Fold to 2nd Barrel % = folded to 2nd barrel / times faced 2nd barrel * 100 */
+  public computeFoldToSecondBarrelStat(): number {
+    if (this.faced_second_barrel === 0) {
+      return 0;
+    }
+    return (this.folded_to_second_barrel / this.faced_second_barrel) * 100;
+  }
+
+  /** Fold to 3rd Barrel % = folded to 3rd barrel / times faced 3rd barrel * 100 */
+  public computeFoldToThirdBarrelStat(): number {
+    if (this.faced_third_barrel === 0) {
+      return 0;
+    }
+    return (this.folded_to_third_barrel / this.faced_third_barrel) * 100;
+  }
+
+  /** Donk Bet % = donk bets made / donk bet opportunities * 100 */
+  public computeDonkBetStat(): number {
+    if (this.donk_bet_opportunities === 0) {
+      return 0;
+    }
+    return (this.donk_bet_made / this.donk_bet_opportunities) * 100;
+  }
+
+  /** Check-Raise % = check-raises made / check-raise opportunities * 100 */
+  public computeCheckRaiseStat(): number {
+    if (this.check_raise_opportunities === 0) {
+      return 0;
+    }
+    return (this.check_raise_made / this.check_raise_opportunities) * 100;
+  }
+
   /** AFq (Aggression Frequency) = (bets+raises) / (bets+raises+calls+checks) * 100 */
   public computeAFq(): number {
     const total =
@@ -288,6 +471,18 @@ export class PlayerStats {
       faced_three_bet: this.faced_three_bet,
       folded_to_three_bet: this.folded_to_three_bet,
       postflop_checks: this.postflop_checks,
+      second_barrel_opportunities: this.second_barrel_opportunities,
+      second_barrel_made: this.second_barrel_made,
+      third_barrel_opportunities: this.third_barrel_opportunities,
+      third_barrel_made: this.third_barrel_made,
+      faced_second_barrel: this.faced_second_barrel,
+      folded_to_second_barrel: this.folded_to_second_barrel,
+      faced_third_barrel: this.faced_third_barrel,
+      folded_to_third_barrel: this.folded_to_third_barrel,
+      donk_bet_opportunities: this.donk_bet_opportunities,
+      donk_bet_made: this.donk_bet_made,
+      check_raise_opportunities: this.check_raise_opportunities,
+      check_raise_made: this.check_raise_made,
     };
   }
 }
