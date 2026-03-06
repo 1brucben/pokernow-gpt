@@ -11,6 +11,8 @@ export class DBService {
 
   async init(): Promise<void> {
     this.db = new Database(this.file_name);
+    this.db.pragma("journal_mode = WAL");
+    this.db.pragma("busy_timeout = 5000");
   }
 
   async createTables(): Promise<void> {
