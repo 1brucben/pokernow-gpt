@@ -25,6 +25,8 @@
   // Generation counter: incremented each time autoMode is toggled off.
   // Used to detect and abort stale in-flight auto operations.
   let autoGeneration = 0;
+  // Guard to prevent re-triggering auto-play after it already ran this turn
+  let autoPlayedThisTurn = false;
 
   // Config version tracking (for toast notifications)
   let lastConfigVersion = null;
@@ -559,10 +561,8 @@
     if (autoMode) {
       showToast("Full auto enabled — bot will play automatically");
       updateStatus("Full auto ON");
-      // If it's currently our turn, trigger auto-play immediately
-      if (isMyTurn() && !processing) {
-        triggerAutoPlay();
-      }
+      // Reset so the level-triggered check in mainLoop can fire
+      autoPlayedThisTurn = false;
     } else {
       // Bump generation so any in-flight auto operation becomes stale
       autoGeneration++;
@@ -626,6 +626,7 @@
         updateStatus("Auto error: check/fold");
       }
     }
+    autoPlayedThisTurn = true;
     processing = false;
   }
 
@@ -674,11 +675,9 @@
       console.log("[PokerBot] Your turn.");
       cachedSuggestion = null;
       hideSuggestion();
+      autoPlayedThisTurn = false;
 
-      if (autoMode && !processing) {
-        // Full auto: query AI and execute immediately
-        triggerAutoPlay();
-      } else if (!autoMode) {
+      if (!autoMode) {
         // Manual mode: show buttons
         showButtons();
         setButtonsLoading(false);
@@ -689,12 +688,21 @@
       hideButtons();
       hideSuggestion();
       cachedSuggestion = null;
+      autoPlayedThisTurn = false;
       if (autoMode) {
         updateStatus("Full auto ON — waiting...");
       } else {
         updateStatus("Hand in progress...");
       }
     }
+
+    // Level-triggered auto-play: fires every poll while it's our turn.
+    // Unlike edge-triggered, this ensures auto-play fires even if the
+    // exact transition poll was missed (e.g. processing was true).
+    if (myTurn && autoMode && !processing && !autoPlayedThisTurn) {
+      triggerAutoPlay();
+    }
+
     lastWasMyTurn = myTurn;
   }
 
