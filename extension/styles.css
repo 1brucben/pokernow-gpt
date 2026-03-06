@@ -109,3 +109,33 @@
 .autoplay-btn:hover:not(:disabled) {
   background: #f57c00;
 }
+
+/* Toast notification */
+#poker-bot-toast {
+  position: fixed;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%) translateY(20px);
+  background: rgba(20, 20, 30, 0.94);
+  border: 1px solid rgba(76, 175, 80, 0.5);
+  color: #4caf50;
+  padding: 10px 20px;
+  border-radius: 8px;
+  font-family:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: 13px;
+  font-weight: 600;
+  z-index: 999999;
+  opacity: 0;
+  transition:
+    opacity 0.3s,
+    transform 0.3s;
+  pointer-events: none;
+  backdrop-filter: blur(8px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+}
+
+#poker-bot-toast.visible {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}

@@ -48,6 +48,7 @@ import ai_config_json from "./configs/ai-config.json" with { type: "json" };
 import bot_config_json from "./configs/bot-config.json" with { type: "json" };
 
 const AI_CONFIG_PATH = path.resolve("./app/configs/ai-config.json");
+const PROMPT_DIR = path.resolve("./app/configs");
 
 export class BotServer {
   private app: express.Application;
@@ -64,6 +65,7 @@ export class BotServer {
   private table!: Table;
   private bot_name: string = "";
   private game_id: string = "";
+  private config_version: number = 0;
   private debug_mode: DebugMode;
   private query_retries: number;
 
@@ -114,6 +116,7 @@ export class BotServer {
         initialized: this.initialized,
         game_id: this.game_id,
         bot_name: this.bot_name,
+        config_version: this.config_version,
       });
     });
 
@@ -348,6 +351,23 @@ export class BotServer {
     });
   }
 
+  private loadCustomPrompt(ai_config: AIConfig): string {
+    // If a file is specified, read from that file
+    if (ai_config.custom_prompt_file) {
+      const promptPath = path.resolve(PROMPT_DIR, ai_config.custom_prompt_file);
+      try {
+        return fs.readFileSync(promptPath, "utf-8").trim();
+      } catch (err) {
+        console.warn(
+          `[Server] Could not read custom prompt file "${promptPath}":`,
+          err,
+        );
+      }
+    }
+    // Fall back to inline custom_prompt string
+    return ai_config.custom_prompt ?? "";
+  }
+
   private async initAIService() {
     dotenv.config();
     const ai_config: AIConfig = ai_config_json;
@@ -358,20 +378,24 @@ export class BotServer {
       ai_config.model_name,
       ai_config.playstyle,
     );
-    if (ai_config.custom_prompt) {
-      this.ai_service.setCustomPrompt(ai_config.custom_prompt);
+
+    const customPrompt = this.loadCustomPrompt(ai_config);
+    if (customPrompt) {
+      this.ai_service.setCustomPrompt(customPrompt);
     }
     this.ai_service.init();
 
     console.log(
       `[Server] AI service: ${ai_config.provider} ${ai_config.model_name} (${ai_config.playstyle})`,
     );
-    if (ai_config.custom_prompt && ai_config.custom_prompt.trim().length > 0) {
+    if (customPrompt.length > 0) {
+      const preview = customPrompt.substring(0, 80).replace(/\n/g, " ");
       console.log(
-        `[Server] Custom prompt: "${ai_config.custom_prompt.substring(0, 80)}${
-          ai_config.custom_prompt.length > 80 ? "..." : ""
-        }"`,
+        `[Server] Custom prompt: "${preview}${customPrompt.length > 80 ? "..." : ""}"`,
       );
+      if (ai_config.custom_prompt_file) {
+        console.log(`[Server] Loaded from: ${ai_config.custom_prompt_file}`);
+      }
     }
 
     this.watchAIConfig();
@@ -379,19 +403,24 @@ export class BotServer {
 
   private watchAIConfig() {
     let debounceTimer: ReturnType<typeof setTimeout> | null = null;
-    fs.watch(AI_CONFIG_PATH, () => {
+
+    const reloadConfig = () => {
       if (debounceTimer) clearTimeout(debounceTimer);
       debounceTimer = setTimeout(() => {
         try {
           const raw = fs.readFileSync(AI_CONFIG_PATH, "utf-8");
           const updated: AIConfig = JSON.parse(raw);
           const newPlaystyle = updated.playstyle ?? "neutral";
-          const newCustomPrompt = updated.custom_prompt ?? "";
+          const newCustomPrompt = this.loadCustomPrompt(updated);
           this.ai_service.setPlaystyle(newPlaystyle);
           this.ai_service.setCustomPrompt(newCustomPrompt);
+          this.config_version++;
           if (newCustomPrompt && newCustomPrompt.trim().length > 0) {
+            const preview = newCustomPrompt
+              .substring(0, 80)
+              .replace(/\n/g, " ");
             console.log(
-              `\n[Strategy updated] Custom prompt: "${newCustomPrompt.substring(0, 80)}${newCustomPrompt.length > 80 ? "..." : ""}"`,
+              `\n[Strategy updated] Custom prompt: "${preview}${newCustomPrompt.length > 80 ? "..." : ""}"`,
             );
           } else {
             console.log(`\n[Strategy updated] Playstyle: ${newPlaystyle}`);
@@ -400,7 +429,24 @@ export class BotServer {
           console.log("[Strategy watcher] Failed to reload:", err);
         }
       }, 300);
-    });
+    };
+
+    // Watch the ai-config.json
+    fs.watch(AI_CONFIG_PATH, reloadConfig);
+
+    // Also watch the prompt file if specified
+    const ai_config: AIConfig = ai_config_json;
+    if (ai_config.custom_prompt_file) {
+      const promptPath = path.resolve(PROMPT_DIR, ai_config.custom_prompt_file);
+      try {
+        fs.watch(promptPath, () => {
+          console.log("[Strategy watcher] Prompt file changed, reloading...");
+          reloadConfig();
+        });
+      } catch (err) {
+        console.warn("[Strategy watcher] Could not watch prompt file:", err);
+      }
+    }
   }
 
   private async pullAndProcessLogs(

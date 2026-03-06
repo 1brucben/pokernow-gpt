@@ -20,6 +20,9 @@
   let cachedSuggestion = null; // { action, amount }
   let turnActive = false;
 
+  // Config version tracking (for toast notifications)
+  let lastConfigVersion = null;
+
   // ─── DOM Helpers ────────────────────────────────────────────────
 
   function getText(selector) {
@@ -429,6 +432,45 @@
     }
   }
 
+  // ─── Toast Notification ─────────────────────────────────────────
+
+  function showToast(message, durationMs = 3000) {
+    const existing = document.getElementById("poker-bot-toast");
+    if (existing) existing.remove();
+
+    const toast = document.createElement("div");
+    toast.id = "poker-bot-toast";
+    toast.textContent = message;
+    document.body.appendChild(toast);
+
+    // Trigger reflow then add visible class for animation
+    requestAnimationFrame(() => toast.classList.add("visible"));
+
+    setTimeout(() => {
+      toast.classList.remove("visible");
+      setTimeout(() => toast.remove(), 300);
+    }, durationMs);
+  }
+
+  async function checkConfigVersion() {
+    if (!enabled) return;
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/health`, { method: "GET" });
+      const data = await res.json();
+      if (data.config_version !== undefined) {
+        if (
+          lastConfigVersion !== null &&
+          data.config_version !== lastConfigVersion
+        ) {
+          showToast("✅ Strategy prompt updated");
+        }
+        lastConfigVersion = data.config_version;
+      }
+    } catch (e) {
+      // backend not reachable, ignore
+    }
+  }
+
   // ─── Button Handlers ──────────────────────────────────────────
 
   async function fetchSuggestion() {
@@ -604,6 +646,9 @@
 
     // Start polling
     setInterval(mainLoop, POLL_INTERVAL);
+
+    // Poll for config changes every 5 seconds
+    setInterval(checkConfigVersion, 5000);
   }
 
   if (document.readyState === "complete") {

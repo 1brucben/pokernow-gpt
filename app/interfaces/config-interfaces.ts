@@ -5,6 +5,7 @@ export interface AIConfig {
   model_name: string;
   playstyle: string;
   custom_prompt?: string;
+  custom_prompt_file?: string;
 }
 
 export interface BotConfig {
