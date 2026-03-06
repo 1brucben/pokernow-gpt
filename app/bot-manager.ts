@@ -65,18 +65,34 @@ function watchAIConfig(ai_service: AIService): void {
 function init(): string {
   dotenv.config();
   return io(
-    "Enter the PokerNow game id (ex. https://www.pokernow.club/games/{game_id}): ",
+    "Enter the PokerNow game id (ex: https://www.pokernow.com/games/{game_id}): ",
   );
 }
 
 const bot_manager = async function () {
-  const game_id = init();
+  let game_id: string;
 
   const puppeteer_service = new PuppeteerService(
     webdriver_config.default_timeout,
     webdriver_config.headless_flag,
+    webdriver_config.connect_to_existing,
+    webdriver_config.remote_debugging_port,
   );
-  await puppeteer_service.init();
+
+  if (webdriver_config.connect_to_existing) {
+    dotenv.config();
+    await puppeteer_service.init();
+    const detected_id = puppeteer_service.getGameIdFromUrl();
+    if (detected_id) {
+      game_id = detected_id;
+      console.log(`Detected game id from browser tab: ${game_id}`);
+    } else {
+      throw new Error("Could not detect game id from the open browser tab.");
+    }
+  } else {
+    game_id = init();
+    await puppeteer_service.init();
+  }
 
   const db_service = new DBService("./app/pokernow-gpt.db");
   await db_service.init();

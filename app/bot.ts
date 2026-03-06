@@ -80,8 +80,12 @@ export class Bot {
   }
 
   public async run() {
-    await this.openGame();
-    await this.enterTableInProgress();
+    if (this.puppeteer_service.isConnectMode()) {
+      await this.openGameConnectMode();
+    } else {
+      await this.openGame();
+      await this.enterTableInProgress();
+    }
     // retrieve initial num players
     await this.updateNumPlayers();
     //TODO: implement loop until STOP SIGNAL (perhaps from UI?)
@@ -108,6 +112,41 @@ export class Bot {
       await this.puppeteer_service.navigateToGame(this.game_id),
       this.debug_mode,
     );
+    logResponse(
+      await this.puppeteer_service.waitForGameInfo(),
+      this.debug_mode,
+    );
+
+    console.log("Getting game info.");
+    const res = await this.puppeteer_service.getGameInfo();
+    logResponse(res, this.debug_mode);
+    if (res.code == "success") {
+      const game_info = this.puppeteer_service.convertGameInfo(
+        res.data as string,
+      );
+      this.table = new Table(this.player_service);
+      this.game = new Game(
+        this.game_id,
+        this.table,
+        game_info.big_blind,
+        game_info.small_blind,
+        game_info.game_type,
+        30,
+      );
+    } else {
+      throw new Error("Failed to get game info.");
+    }
+  }
+
+  private async openGameConnectMode() {
+    console.log(
+      "Running in connect mode — attaching to your existing browser session.",
+    );
+
+    const io = prompt();
+    this.bot_name = io("What is your player name in the game? ");
+    console.log(`Bot will play as: ${this.bot_name}`);
+
     logResponse(
       await this.puppeteer_service.waitForGameInfo(),
       this.debug_mode,

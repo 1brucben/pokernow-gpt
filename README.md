@@ -30,12 +30,11 @@
   </ol>
 </details>
 
-
-
 <!-- ABOUT THE PROJECT -->
+
 ## About The Project
 
-A Poker bot designed for [PokerNow](https://www.pokernow.club) using ChatGPT (or other models! check the Supported Models section below) to make decisions for the user. The bot web scrapes and fetches logs from PokerNow, building a model of the live game: the stakes, the user's hole cards, every player's position and stack size, the current pot size, the current street and shown community cards, and previous actions made by the the bot and other players. 
+A Poker bot designed for [PokerNow](https://www.pokernow.com) using ChatGPT (or other models! check the Supported Models section below) to make decisions for the user. The bot web scrapes and fetches logs from PokerNow, building a model of the live game: the stakes, the user's hole cards, every player's position and stack size, the current pot size, the current street and shown community cards, and previous actions made by the the bot and other players.
 
 This model is used to formulate a query, fed into an LLM model. The output is parsed to reach a decision for the user, which is then executed automatically by the webdriver. The history of queries is maintained across a single hand and passed back into the model so that it can "remember" previous actions, such as who was the preflop aggressor.
 
@@ -53,20 +52,17 @@ As ChatGPT and LLMs/generative models as a whole improve over time, we can and s
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
-
-
 ### Built With
 
-* [Node][Node-url]
-* [Express][Express-url]
-* [Puppeteer][Puppeteer-url]
-* [SQLite][SQLite-url]
+- [Node][Node-url]
+- [Express][Express-url]
+- [Puppeteer][Puppeteer-url]
+- [SQLite][SQLite-url]
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
-
-
 <!-- GETTING STARTED -->
+
 ## Getting Started
 
 ### Installation
@@ -82,8 +78,8 @@ As ChatGPT and LLMs/generative models as a whole improve over time, we can and s
    ```
 4. Create a .env file in the base project directory ./pokernow-gpt and define your API Key
    ```js
-   OPENAI_API_KEY = 'YOUR API KEY';
-   GOOGLEAI_API_KEY = 'YOUR API KEY';
+   OPENAI_API_KEY = "YOUR API KEY";
+   GOOGLEAI_API_KEY = "YOUR API KEY";
    ```
 5. Update app/configs/ai-config.json to your desired provider and model_name (see supported models below for reference)
    ```json
@@ -96,22 +92,25 @@ As ChatGPT and LLMs/generative models as a whole improve over time, we can and s
    ```sh
    npx tsx app/index.ts
    ```
-7. Follow the command line prompts to join an existing PokerNow game as a player. (ensure that the game is already setup with another player being the host, you can start a new game by going to https://www.pokernow.club/start-game)
+7. Follow the command line prompts to join an existing PokerNow game as a player. (ensure that the game is already setup with another player being the host, you can start a new game by going to https://www.pokernow.com/start-game)
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
 <!-- SUPPORTED MODELS -->
+
 ## Supported Models
-providers
----
+
+## providers
+
 "OpenAI", "Google"
 
-models
----
+## models
+
 OpenAI: "gpt-3.5-turbo", "gpt-4-turbo", "gpt-4o"
 
 Google: "gemini-1.5-flash", "gemini-1.0-pro", "gemini-1.5-pro"
 
 <!-- LICENSE -->
+
 ## License
 
 Distributed under the MIT License. See `LICENSE.txt` for more information.
@@ -119,6 +118,7 @@ Distributed under the MIT License. See `LICENSE.txt` for more information.
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
 <!-- CONTACT -->
+
 ## Contact
 
 pokernowgpt@gmail.com
@@ -128,6 +128,7 @@ Project Link: [https://github.com/csong2022/pokernow-gpt](https://github.com/cso
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
 <!-- MARKDOWN LINKS & IMAGES -->
+
 [Node-url]: https://nodejs.org/en
 [Express-url]: https://expressjs.com/
 [Puppeteer-url]: https://pptr.dev/

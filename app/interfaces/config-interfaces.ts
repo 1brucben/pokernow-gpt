@@ -15,4 +15,6 @@ export interface BotConfig {
 export interface WebDriverConfig {
   default_timeout: number;
   headless_flag: boolean;
+  connect_to_existing: boolean;
+  remote_debugging_port: number;
 }

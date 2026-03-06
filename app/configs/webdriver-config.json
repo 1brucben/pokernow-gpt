@@ -1,4 +1,6 @@
 {
-    "default_timeout": 1000,
-    "headless_flag": true
+  "default_timeout": 1000,
+  "headless_flag": true,
+  "connect_to_existing": true,
+  "remote_debugging_port": 9222
 }

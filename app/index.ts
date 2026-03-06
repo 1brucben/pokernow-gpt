@@ -1,8 +1,9 @@
-import once from 'events';
-import express from 'express';
-import bot_manager from './bot-manager.ts'
-import player_router from './routes/player-routes.ts';
-import db_service from './services/db-service.ts';
+import once from "events";
+import express from "express";
+import bot_manager from "./bot-manager.ts";
+import { BotServer } from "./server.ts";
+import player_router from "./routes/player-routes.ts";
+import db_service from "./services/db-service.ts";
 
 const app = express();
 /* const port = 8080;
@@ -16,9 +17,9 @@ app.get('/', (req: any, res:any) => {
 app.use('/player', player_router); */
 
 async function startServer() {
-    await db_service.init();
-    await db_service.createTables();
-    /* return new Promise<void>((resolve) => {
+  await db_service.init();
+  await db_service.createTables();
+  /* return new Promise<void>((resolve) => {
         app.listen(port, ()  => {
             console.log(`App listening on http://localhost:${port}`);
             return resolve();
@@ -26,6 +27,14 @@ async function startServer() {
     }); */
 }
 
-startServer().then(
-    async() => await bot_manager()
-)
+// Check for --extension flag to start in extension server mode
+const useExtension = process.argv.includes("--extension");
+
+if (useExtension) {
+  startServer().then(async () => {
+    const server = new BotServer(3000);
+    await server.start();
+  });
+} else {
+  startServer().then(async () => await bot_manager());
+}
