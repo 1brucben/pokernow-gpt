@@ -8,10 +8,13 @@
   const POLL_INTERVAL = 500; // ms between DOM checks
   const ACTION_DELAY = 800; // ms delay before executing action
   const BET_TYPE_DELAY = 150; // ms delay between keystrokes when typing bet
+  const REQUEST_TIMEOUT = 30000; // ms before aborting a backend request
+  const PROCESSING_TIMEOUT = 45000; // ms before force-resetting stuck processing flag
 
   let enabled = false;
   let botName = "";
   let processing = false;
+  let processingStartTime = 0; // timestamp when processing was set to true
   let currentHandNum = null;
   let initialized = false;
   let statusOverlay = null;
@@ -27,6 +30,8 @@
   let autoGeneration = 0;
   // Guard to prevent re-triggering auto-play after it already ran this turn
   let autoPlayedThisTurn = false;
+  // Incremented each time a new turn is detected; used to discard stale AI responses
+  let turnGeneration = 0;
 
   // Config version tracking (for toast notifications)
   let lastConfigVersion = null;
@@ -301,10 +306,14 @@
     const gameInfo = getGameInfo();
     if (!gameInfo) return null;
 
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT);
+
     try {
       const res = await fetch(`${BACKEND_URL}/api/action`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        signal: controller.signal,
         body: JSON.stringify({
           hand: getHand(),
           pot_size: getPotSize(),
@@ -316,9 +325,15 @@
           available_actions: getAvailableActions(),
         }),
       });
+      clearTimeout(timeoutId);
       return await res.json();
     } catch (err) {
-      console.error("[PokerBot] Failed to get action:", err);
+      clearTimeout(timeoutId);
+      if (err.name === "AbortError") {
+        console.error("[PokerBot] Backend request timed out.");
+      } else {
+        console.error("[PokerBot] Failed to get action:", err);
+      }
       return null;
     }
   }
@@ -512,6 +527,7 @@
   async function onSuggestClick() {
     if (processing) return;
     processing = true;
+    processingStartTime = Date.now();
     cachedSuggestion = null;
     hideSuggestion();
     await fetchSuggestion();
@@ -521,6 +537,7 @@
   async function onAutoplayClick() {
     if (processing) return;
     processing = true;
+    processingStartTime = Date.now();
 
     // If no suggestion yet, fetch one first
     if (!cachedSuggestion) {
@@ -586,7 +603,9 @@
   async function triggerAutoPlay() {
     if (processing) return;
     processing = true;
+    processingStartTime = Date.now();
     const myGen = autoGeneration; // snapshot to detect stale operations
+    const myTurnGen = turnGeneration; // snapshot to detect manual actions
     updateStatus("Auto: thinking...");
     hideButtons();
     try {
@@ -595,6 +614,15 @@
       if (!autoMode || autoGeneration !== myGen) {
         console.log("[PokerBot] Auto operation aborted (mode changed).");
         processing = false;
+        return;
+      }
+      // Abort if the turn changed (user acted manually, new turn started)
+      if (turnGeneration !== myTurnGen) {
+        console.log(
+          "[PokerBot] Auto operation aborted (turn changed — manual action detected). Will rethink.",
+        );
+        processing = false;
+        autoPlayedThisTurn = false; // allow re-trigger on the new turn
         return;
       }
       if (response && response.action) {
@@ -639,6 +667,20 @@
   async function mainLoop() {
     if (!enabled) return;
 
+    // Safety: reset processing if it has been stuck too long
+    if (
+      processing &&
+      processingStartTime > 0 &&
+      Date.now() - processingStartTime > PROCESSING_TIMEOUT
+    ) {
+      console.warn(
+        "[PokerBot] Processing was stuck for too long, force-resetting.",
+      );
+      processing = false;
+      processingStartTime = 0;
+      updateStatus("Reset — was stuck");
+    }
+
     // Detect new hand (transition from waiting to not-waiting)
     const waiting = isWaiting();
     if (lastWasWaiting && !waiting) {
@@ -673,6 +715,7 @@
     if (myTurn && !lastWasMyTurn) {
       // Turn just started
       console.log("[PokerBot] Your turn.");
+      turnGeneration++;
       cachedSuggestion = null;
       hideSuggestion();
       autoPlayedThisTurn = false;

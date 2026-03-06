@@ -298,10 +298,10 @@ export class BotServer {
         const { num_players, game_type, big_blind, small_blind } = req.body;
 
         this.game.updateGameTypeAndBlinds(small_blind, big_blind, game_type);
-        this.table.setNumPlayers(num_players);
-        this.table.setPlayersInPot(num_players);
         this.hand_history = [];
         this.table.nextHand();
+        this.table.setNumPlayers(num_players);
+        this.table.setPlayersInPot(num_players);
 
         // Reset processed_logs for new hand
         this.processed_logs = {
