@@ -204,5 +204,5 @@ function defineStats(
 }
 
 function defineOutput(): string {
-  return "Do not provide an explanation, respond in this format: {action, bet_size_in_BBs BB}";
+  return "Think through the situation internally, but only output: {action, bet_size_in_BBs BB}";
 }

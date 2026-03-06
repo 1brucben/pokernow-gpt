@@ -94,7 +94,6 @@ export class Bot {
         await this.waitForNextHand();
         await this.updateNumPlayers();
         await this.updateGameInfo();
-        console.log("Number of players in game:", this.table.getNumPlayers());
         this.table.setPlayersInPot(this.table.getNumPlayers());
         await this.playOneHand();
       } catch (err) {
@@ -106,7 +105,7 @@ export class Bot {
   }
 
   private async openGame() {
-    console.log(`The PokerNow game with id: ${this.game_id} will now open.`);
+    console.log(`[Bot] Opening game ${this.game_id}`);
 
     logResponse(
       await this.puppeteer_service.navigateToGame(this.game_id),
@@ -117,7 +116,6 @@ export class Bot {
       this.debug_mode,
     );
 
-    console.log("Getting game info.");
     const res = await this.puppeteer_service.getGameInfo();
     logResponse(res, this.debug_mode);
     if (res.code == "success") {
@@ -139,20 +137,17 @@ export class Bot {
   }
 
   private async openGameConnectMode() {
-    console.log(
-      "Running in connect mode — attaching to your existing browser session.",
-    );
+    console.log("[Bot] Connect mode — attaching to existing browser session.");
 
     const io = prompt();
     this.bot_name = io("What is your player name in the game? ");
-    console.log(`Bot will play as: ${this.bot_name}`);
+    console.log(`[Bot] Playing as: ${this.bot_name}`);
 
     logResponse(
       await this.puppeteer_service.waitForGameInfo(),
       this.debug_mode,
     );
 
-    console.log("Getting game info.");
     const res = await this.puppeteer_service.getGameInfo();
     logResponse(res, this.debug_mode);
     if (res.code == "success") {
@@ -177,15 +172,10 @@ export class Bot {
     const io = prompt();
     while (true) {
       const name = io("What is your desired player name? ");
-      console.log(`Your player name will be ${name}.`);
       this.bot_name = name;
 
       const stack_size = io("What is your desired stack size? ");
-      console.log(`Your initial stack size will be ${stack_size}.`);
-
-      console.log(
-        `Attempting to enter table with name: ${name} and stack size: ${stack_size}.`,
-      );
+      console.log(`[Bot] Entering table as ${name} (stack: ${stack_size})`);
       const code = logResponse(
         await this.puppeteer_service.sendEnterTableRequest(
           name,
@@ -197,9 +187,9 @@ export class Bot {
       if (code === "success") {
         break;
       }
-      console.log("Please try again.");
+      console.log("[Bot] Please try again.");
     }
-    console.log("Waiting for table host to accept ingress request.");
+    console.log("[Bot] Waiting for host to accept...");
     logResponse(
       await this.puppeteer_service.waitForTableEntry(),
       this.debug_mode,
@@ -214,7 +204,7 @@ export class Bot {
   }
 
   private async waitForNextHand() {
-    console.log("Waiting for next hand to start.");
+    console.log("[Hand] Waiting for next hand...");
     await this.puppeteer_service.waitForNextHand(
       this.table.getNumPlayers(),
       this.game.getMaxTurnLength(),
@@ -231,11 +221,11 @@ export class Bot {
       last_created: this.first_created,
       first_fetch: true,
     };
+    let lastQuerySent = "";
     while (true) {
       var res;
       // wait for the bot's turn -> perform actions
       // OR winner is detected -> pull all the logs
-      console.log("Checking for bot's turn or winner of hand.");
 
       res = await this.puppeteer_service.waitForBotTurnOrWinner(
         this.table.getNumPlayers(),
@@ -253,8 +243,6 @@ export class Bot {
           } catch (err) {
             console.log("Failed to pull logs.");
           }
-          console.log("Performing bot's turn.");
-
           // get hand and stack size
           const pot_size = await this.getPotSize();
           const hand = await this.getHand();
@@ -270,6 +258,19 @@ export class Bot {
           try {
             await postProcessLogs(this.table.getLogsQueue(), this.game);
             const query = constructQuery(this.game);
+
+            // Skip if we already acted on this exact game state
+            if (query === lastQuerySent) {
+              console.log("[Bot] Duplicate turn detected, skipping AI query.");
+              await sleep(1000);
+              logResponse(
+                await this.puppeteer_service.waitForBotTurnEnd(),
+                this.debug_mode,
+              );
+              continue;
+            }
+            lastQuerySent = query;
+
             // query chatGPT and make action
             const bot_action = await this.queryBotAction(
               query,
@@ -289,22 +290,19 @@ export class Bot {
             }
           }
 
-          console.log("Waiting for bot's turn to end");
           logResponse(
             await this.puppeteer_service.waitForBotTurnEnd(),
             this.debug_mode,
           );
         } else if (data.includes("winner")) {
-          console.log("Detected winner in hand.");
           break;
         }
       }
     }
 
     res = await this.puppeteer_service.getStackSize();
-    logResponse(res, this.debug_mode);
     if (res.code === "success") {
-      console.log("Ending stack size:", res.data);
+      console.log(`[Hand] End stack: ${res.data}`);
     }
 
     try {
@@ -322,7 +320,7 @@ export class Bot {
     }
 
     logResponse(await this.puppeteer_service.waitForHandEnd(), this.debug_mode);
-    console.log("Completed a hand.\n");
+    console.log("[Hand] Complete.\n");
   }
 
   private async updateGameInfo() {
@@ -331,7 +329,6 @@ export class Bot {
       this.debug_mode,
     );
 
-    console.log("Getting game info.");
     const res = await this.puppeteer_service.getGameInfo();
     logResponse(res, this.debug_mode);
     if (res.code == "success") {
@@ -481,7 +478,13 @@ export class Bot {
     }
     try {
       await sleep(2000);
+      console.log(
+        `[AI] Requesting action (attempt ${retry_counter + 1}/${retries + 1})...`,
+      );
       const ai_response = await this.ai_service.query(query, this.hand_history);
+      console.log(
+        `[AI] Response: ${ai_response.bot_action.action_str}${ai_response.bot_action.bet_size_in_BBs ? " " + ai_response.bot_action.bet_size_in_BBs + " BB" : ""}`,
+      );
       this.hand_history = ai_response.prev_messages;
 
       if (await this.isValidBotAction(ai_response.bot_action)) {
@@ -491,16 +494,15 @@ export class Bot {
         }
         return ai_response.bot_action;
       }
-      console.log("Invalid bot action, retrying query.");
+      console.log("[AI] Invalid action, retrying...");
       return await this.queryBotAction(query, retries, retry_counter + 1);
     } catch (err) {
-      console.log("Error while querying ChatGPT:", err, "retrying query.");
+      console.log("[AI] Query error, retrying...", err);
       return await this.queryBotAction(query, retries, retry_counter + 1);
     }
   }
 
   private async isValidBotAction(bot_action: BotAction): Promise<boolean> {
-    console.log("Attempted Bot Action:", bot_action);
     const valid_actions: string[] = [
       "bet",
       "raise",
@@ -510,7 +512,6 @@ export class Bot {
       "all-in",
     ];
     const curr_stack_size_in_BBs = this.game.getHero()!.getStackSize();
-    console.log("Bot Stack in BBs:", curr_stack_size_in_BBs);
     let is_valid = false;
     if (
       bot_action.action_str &&
@@ -573,7 +574,6 @@ export class Bot {
   }
 
   private async performBotAction(bot_action: BotAction): Promise<void> {
-    console.log("Bot Action:", bot_action.action_str);
     let bet_size = convertToValue(
       bot_action.bet_size_in_BBs,
       this.game.getBigBlind(),
@@ -581,8 +581,7 @@ export class Bot {
     switch (bot_action.action_str) {
       case "bet":
         console.log(
-          "Bet Size:",
-          convertToBBs(bet_size, this.game.getBigBlind()),
+          `[Bot] >> BET ${convertToBBs(bet_size, this.game.getBigBlind())} BB`,
         );
         logResponse(
           await this.puppeteer_service.betOrRaise(bet_size),
@@ -591,8 +590,7 @@ export class Bot {
         break;
       case "raise":
         console.log(
-          "Bet Size:",
-          convertToBBs(bet_size, this.game.getBigBlind()),
+          `[Bot] >> RAISE ${convertToBBs(bet_size, this.game.getBigBlind())} BB`,
         );
         logResponse(
           await this.puppeteer_service.betOrRaise(bet_size),
@@ -605,8 +603,7 @@ export class Bot {
           this.game.getBigBlind(),
         );
         console.log(
-          "Bet Size:",
-          convertToBBs(bet_size, this.game.getBigBlind()),
+          `[Bot] >> ALL-IN ${convertToBBs(bet_size, this.game.getBigBlind())} BB`,
         );
         logResponse(
           await this.puppeteer_service.betOrRaise(bet_size),
@@ -614,12 +611,15 @@ export class Bot {
         );
         break;
       case "call":
+        console.log(`[Bot] >> CALL`);
         logResponse(await this.puppeteer_service.call(), this.debug_mode);
         break;
       case "check":
+        console.log(`[Bot] >> CHECK`);
         logResponse(await this.puppeteer_service.check(), this.debug_mode);
         break;
       case "fold":
+        console.log(`[Bot] >> FOLD`);
         logResponse(await this.puppeteer_service.fold(), this.debug_mode);
         const res = await this.puppeteer_service.cancelUnnecessaryFold();
         if (res.code === "success") {

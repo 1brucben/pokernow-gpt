@@ -22,7 +22,10 @@ export class OpenAIService extends AIService {
   //otherwise attaches it to previous queries and feeds the entire conversation into chatGPT
   async query(input: string, prev_messages: AIMessage[]): Promise<AIResponse> {
     if (prev_messages.length > 0) {
-      if (input !== prev_messages[prev_messages.length - 1].text_content) {
+      const lastUserMsg = [...prev_messages]
+        .reverse()
+        .find((m) => m.metadata.role === "user");
+      if (!lastUserMsg || input !== lastUserMsg.text_content) {
         prev_messages.push({ text_content: input, metadata: { role: "user" } });
       }
     } else {
@@ -42,7 +45,6 @@ export class OpenAIService extends AIService {
       }
     }
 
-    console.log("prev_messages:", prev_messages);
     const processed_messages = this.processMessages(prev_messages);
     const completion = await this.agent.chat.completions.create({
       messages: processed_messages,

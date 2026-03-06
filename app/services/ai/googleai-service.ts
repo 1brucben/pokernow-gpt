@@ -65,8 +65,6 @@ export class GoogleAIService extends AIService {
       }
     }
 
-    console.log("prev_messages:", prev_messages);
-    console.log("input:", input);
     const processed_messages = this.processMessages(prev_messages);
 
     const chat = this.model.startChat({
@@ -86,7 +84,10 @@ export class GoogleAIService extends AIService {
       bot_action = parseResponse(text_content);
     }
 
-    if (input !== prev_messages[prev_messages.length - 1].text_content) {
+    const lastUserMsg = [...prev_messages]
+      .reverse()
+      .find((m) => m.metadata.role === "user");
+    if (!lastUserMsg || input !== lastUserMsg.text_content) {
       prev_messages.push({ text_content: input, metadata: { role: "user" } });
     }
 
