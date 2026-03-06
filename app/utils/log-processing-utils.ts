@@ -72,6 +72,9 @@ export async function postProcessLogs(
             runout,
           ),
         );
+        // Reset actions when a new street begins so only current-street actions
+        // appear in the AI query
+        table.resetPlayerActions();
       }
     }
   }
