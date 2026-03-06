@@ -22,6 +22,9 @@
 
   // Auto-mode: bot plays automatically without button clicks
   let autoMode = false;
+  // Generation counter: incremented each time autoMode is toggled off.
+  // Used to detect and abort stale in-flight auto operations.
+  let autoGeneration = 0;
 
   // Config version tracking (for toast notifications)
   let lastConfigVersion = null;
@@ -556,10 +559,74 @@
     if (autoMode) {
       showToast("Full auto enabled — bot will play automatically");
       updateStatus("Full auto ON");
+      // If it's currently our turn, trigger auto-play immediately
+      if (isMyTurn() && !processing) {
+        triggerAutoPlay();
+      }
     } else {
+      // Bump generation so any in-flight auto operation becomes stale
+      autoGeneration++;
       showToast("Full auto disabled — manual mode");
-      updateStatus("Active — waiting for hand...");
+      // If it's currently our turn, show manual buttons immediately
+      if (isMyTurn()) {
+        processing = false; // release lock from any pending auto operation
+        cachedSuggestion = null;
+        hideSuggestion();
+        showButtons();
+        setButtonsLoading(false);
+        updateStatus("Your turn — choose an action");
+      } else {
+        updateStatus("Active — waiting for hand...");
+      }
     }
+  }
+
+  // ─── Auto-Play Logic (extracted for reuse) ─────────────────────
+
+  async function triggerAutoPlay() {
+    if (processing) return;
+    processing = true;
+    const myGen = autoGeneration; // snapshot to detect stale operations
+    updateStatus("Auto: thinking...");
+    hideButtons();
+    try {
+      const response = await requestAction();
+      // Abort if autoMode was toggled off while we were waiting
+      if (!autoMode || autoGeneration !== myGen) {
+        console.log("[PokerBot] Auto operation aborted (mode changed).");
+        processing = false;
+        return;
+      }
+      if (response && response.action) {
+        updateStatus(`Auto: ${response.action}`);
+        const success = await executeAction(response.action, response.amount);
+        // Check again after execution delay
+        if (!autoMode || autoGeneration !== myGen) {
+          processing = false;
+          return;
+        }
+        if (success) {
+          updateStatus(`Auto played: ${response.action}`);
+        } else {
+          if (!clickCheck()) clickFold();
+          updateStatus("Auto fallback: check/fold");
+        }
+      } else {
+        if (!autoMode || autoGeneration !== myGen) {
+          processing = false;
+          return;
+        }
+        if (!clickCheck()) clickFold();
+        updateStatus("Auto: no response, check/fold");
+      }
+    } catch (err) {
+      console.error("[PokerBot] Auto error:", err);
+      if (autoMode && autoGeneration === myGen) {
+        if (!clickCheck()) clickFold();
+        updateStatus("Auto error: check/fold");
+      }
+    }
+    processing = false;
   }
 
   // ─── Main Loop ─────────────────────────────────────────────────
@@ -610,33 +677,7 @@
 
       if (autoMode && !processing) {
         // Full auto: query AI and execute immediately
-        processing = true;
-        updateStatus("Auto: thinking...");
-        hideButtons();
-        try {
-          const response = await requestAction();
-          if (response && response.action) {
-            updateStatus(`Auto: ${response.action}`);
-            const success = await executeAction(
-              response.action,
-              response.amount,
-            );
-            if (success) {
-              updateStatus(`Auto played: ${response.action}`);
-            } else {
-              if (!clickCheck()) clickFold();
-              updateStatus("Auto fallback: check/fold");
-            }
-          } else {
-            if (!clickCheck()) clickFold();
-            updateStatus("Auto: no response, check/fold");
-          }
-        } catch (err) {
-          console.error("[PokerBot] Auto error:", err);
-          if (!clickCheck()) clickFold();
-          updateStatus("Auto error: check/fold");
-        }
-        processing = false;
+        triggerAutoPlay();
       } else if (!autoMode) {
         // Manual mode: show buttons
         showButtons();
