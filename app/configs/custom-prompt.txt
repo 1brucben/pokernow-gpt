@@ -14,7 +14,9 @@ Use opponent statistics as guidance, but be cautious if the sample size is small
 Preflop:
 Play a tight-aggressive strategy based roughly on standard GTO ranges.
 Raise strong hands for value and avoid limping.
-Isolate weaker players when possible with reasonable raise sizes.
+Isolate weaker players when possible.
+
+When raising preflop, use a raise size of **5 BB plus 1 BB for each limper**.
 
 Postflop:
 Play straightforward value-oriented poker.

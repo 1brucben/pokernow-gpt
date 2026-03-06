@@ -9,7 +9,7 @@
   const ACTION_DELAY = 800; // ms delay before executing action
   const BET_TYPE_DELAY = 150; // ms delay between keystrokes when typing bet
   const REQUEST_TIMEOUT = 30000; // ms before aborting a backend request
-  const PROCESSING_TIMEOUT = 45000; // ms before force-resetting stuck processing flag
+  const PROCESSING_TIMEOUT = 15000; // ms before force-resetting stuck processing flag
 
   let enabled = false;
   let botName = "";
@@ -32,9 +32,17 @@
   let autoPlayedThisTurn = false;
   // Incremented each time a new turn is detected; used to discard stale AI responses
   let turnGeneration = 0;
+  // Guard to prevent overlapping mainLoop iterations (setInterval + async = concurrent)
+  let mainLoopRunning = false;
 
   // Config version tracking (for toast notifications)
   let lastConfigVersion = null;
+
+  // Hero card tracking for reliable new-hand detection
+  let lastHeroHandKey = "";
+  // Snapshot of community cards at the moment a new hand was detected;
+  // until the DOM cards differ from this snapshot, treat them as stale.
+  let staleCommunitySnapshot = null;
 
   // ─── DOM Helpers ────────────────────────────────────────────────
 
@@ -87,6 +95,35 @@
       }
     }
     return cards;
+  }
+
+  function getCommunityCards() {
+    const cards = [];
+    const cardDivs = document.querySelectorAll(".table-cards > .table-card");
+    for (const div of cardDivs) {
+      const val = div.querySelector(".value");
+      const suit = div.querySelector(".sub-suit");
+      if (val && suit) {
+        cards.push(val.textContent.trim() + suit.textContent.trim());
+      }
+    }
+    return cards;
+  }
+
+  // Returns community cards, filtering out stale cards from the previous hand.
+  // After a new hand is detected (hero cards change), community cards
+  // are treated as empty until the DOM actually shows different cards.
+  function getCleanCommunityCards() {
+    const raw = getCommunityCards();
+    if (staleCommunitySnapshot !== null) {
+      // Still showing the same cards as when the new hand was detected → stale
+      if (raw.join(",") === staleCommunitySnapshot) {
+        return [];
+      }
+      // Cards changed → real new community cards, clear the snapshot
+      staleCommunitySnapshot = null;
+    }
+    return raw;
   }
 
   function getStackSize() {
@@ -306,6 +343,19 @@
     const gameInfo = getGameInfo();
     if (!gameInfo) return null;
 
+    // Detect new hand by hero card change
+    const hand = getHand();
+    const handKey = hand.join(",");
+    if (lastHeroHandKey && handKey && handKey !== lastHeroHandKey) {
+      currentHandNum = (currentHandNum || 0) + 1;
+      // Snapshot current DOM community cards as stale
+      staleCommunitySnapshot = getCommunityCards().join(",");
+      console.log(
+        "[PokerBot] New hand detected via card change, hand #" + currentHandNum,
+      );
+    }
+    if (handKey) lastHeroHandKey = handKey;
+
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT);
 
@@ -323,6 +373,8 @@
           big_blind: gameInfo.big_blind,
           small_blind: gameInfo.small_blind,
           available_actions: getAvailableActions(),
+          hand_num: currentHandNum,
+          community_cards: getCleanCommunityCards(),
         }),
       });
       clearTimeout(timeoutId);
@@ -342,10 +394,13 @@
     const gameInfo = getGameInfo();
     if (!gameInfo) return;
 
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT);
     try {
       await fetch(`${BACKEND_URL}/api/hand-start`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        signal: controller.signal,
         body: JSON.stringify({
           num_players: getNumPlayers(),
           game_type: gameInfo.game_type,
@@ -354,21 +409,32 @@
         }),
       });
     } catch (err) {
-      console.error("[PokerBot] Failed to notify hand start:", err);
+      if (err.name !== "AbortError") {
+        console.error("[PokerBot] Failed to notify hand start:", err);
+      }
+    } finally {
+      clearTimeout(timeoutId);
     }
   }
 
   async function notifyHandEnd() {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT);
     try {
       await fetch(`${BACKEND_URL}/api/hand-end`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        signal: controller.signal,
         body: JSON.stringify({
           stack_size: getStackSize(),
         }),
       });
     } catch (err) {
-      console.error("[PokerBot] Failed to notify hand end:", err);
+      if (err.name !== "AbortError") {
+        console.error("[PokerBot] Failed to notify hand end:", err);
+      }
+    } finally {
+      clearTimeout(timeoutId);
     }
   }
 
@@ -528,44 +594,52 @@
     if (processing) return;
     processing = true;
     processingStartTime = Date.now();
-    cachedSuggestion = null;
-    hideSuggestion();
-    await fetchSuggestion();
-    processing = false;
+    try {
+      cachedSuggestion = null;
+      hideSuggestion();
+      await fetchSuggestion();
+    } catch (err) {
+      console.error("[PokerBot] Suggest click error:", err);
+    } finally {
+      processing = false;
+    }
   }
 
   async function onAutoplayClick() {
     if (processing) return;
     processing = true;
     processingStartTime = Date.now();
-
-    // If no suggestion yet, fetch one first
-    if (!cachedSuggestion) {
-      hideSuggestion();
-      await fetchSuggestion();
-    }
-
-    if (cachedSuggestion) {
-      updateStatus(`Executing: ${cachedSuggestion.action}`);
-      const success = await executeAction(
-        cachedSuggestion.action,
-        cachedSuggestion.amount,
-      );
-      if (success) {
-        updateStatus(`Played: ${cachedSuggestion.action}`);
-      } else {
-        console.warn("[PokerBot] Failed to execute, trying check/fold.");
-        if (!clickCheck()) clickFold();
-        updateStatus("Fallback: check/fold");
+    try {
+      // If no suggestion yet, fetch one first
+      if (!cachedSuggestion) {
+        hideSuggestion();
+        await fetchSuggestion();
       }
-      cachedSuggestion = null;
-      hideSuggestion();
-      hideButtons();
-    } else {
-      updateStatus("No suggestion available");
-    }
 
-    processing = false;
+      if (cachedSuggestion) {
+        updateStatus(`Executing: ${cachedSuggestion.action}`);
+        const success = await executeAction(
+          cachedSuggestion.action,
+          cachedSuggestion.amount,
+        );
+        if (success) {
+          updateStatus(`Played: ${cachedSuggestion.action}`);
+        } else {
+          console.warn("[PokerBot] Failed to execute, trying check/fold.");
+          if (!clickCheck()) clickFold();
+          updateStatus("Fallback: check/fold");
+        }
+        cachedSuggestion = null;
+        hideSuggestion();
+        hideButtons();
+      } else {
+        updateStatus("No suggestion available");
+      }
+    } catch (err) {
+      console.error("[PokerBot] Autoplay click error:", err);
+    } finally {
+      processing = false;
+    }
   }
 
   function onAutoToggleClick() {
@@ -583,10 +657,13 @@
     } else {
       // Bump generation so any in-flight auto operation becomes stale
       autoGeneration++;
+      // Always release the processing lock when switching to manual mode.
+      // Without this, an in-flight auto request keeps processing=true and
+      // button clicks silently fail until the request completes.
+      processing = false;
       showToast("Full auto disabled — manual mode");
       // If it's currently our turn, show manual buttons immediately
       if (isMyTurn()) {
-        processing = false; // release lock from any pending auto operation
         cachedSuggestion = null;
         hideSuggestion();
         showButtons();
@@ -613,7 +690,6 @@
       // Abort if autoMode was toggled off while we were waiting
       if (!autoMode || autoGeneration !== myGen) {
         console.log("[PokerBot] Auto operation aborted (mode changed).");
-        processing = false;
         return;
       }
       // Abort if the turn changed (user acted manually, new turn started)
@@ -621,7 +697,6 @@
         console.log(
           "[PokerBot] Auto operation aborted (turn changed — manual action detected). Will rethink.",
         );
-        processing = false;
         autoPlayedThisTurn = false; // allow re-trigger on the new turn
         return;
       }
@@ -630,7 +705,6 @@
         const success = await executeAction(response.action, response.amount);
         // Check again after execution delay
         if (!autoMode || autoGeneration !== myGen) {
-          processing = false;
           return;
         }
         if (success) {
@@ -641,21 +715,37 @@
         }
       } else {
         if (!autoMode || autoGeneration !== myGen) {
-          processing = false;
           return;
         }
         if (!clickCheck()) clickFold();
         updateStatus("Auto: no response, check/fold");
       }
+      autoPlayedThisTurn = true;
     } catch (err) {
       console.error("[PokerBot] Auto error:", err);
       if (autoMode && autoGeneration === myGen) {
         if (!clickCheck()) clickFold();
         updateStatus("Auto error: check/fold");
       }
+    } finally {
+      processing = false;
     }
-    autoPlayedThisTurn = true;
-    processing = false;
+  }
+
+  // ─── Overlay Health Check ──────────────────────────────────────
+
+  function ensureOverlay() {
+    if (!document.getElementById("poker-bot-overlay")) {
+      console.warn("[PokerBot] Overlay was removed from DOM — re-creating.");
+      createOverlay();
+      if (enabled) {
+        updateStatus(
+          autoMode ? "Full auto ON" : "Active — waiting for hand...",
+        );
+      } else {
+        updateStatus("Disabled — configure in popup");
+      }
+    }
   }
 
   // ─── Main Loop ─────────────────────────────────────────────────
@@ -666,87 +756,95 @@
 
   async function mainLoop() {
     if (!enabled) return;
+    if (mainLoopRunning) return;
+    mainLoopRunning = true;
+    try {
+      // Ensure overlay is still in the DOM (host page may remove it)
+      ensureOverlay();
 
-    // Safety: reset processing if it has been stuck too long
-    if (
-      processing &&
-      processingStartTime > 0 &&
-      Date.now() - processingStartTime > PROCESSING_TIMEOUT
-    ) {
-      console.warn(
-        "[PokerBot] Processing was stuck for too long, force-resetting.",
-      );
-      processing = false;
-      processingStartTime = 0;
-      updateStatus("Reset — was stuck");
-    }
-
-    // Detect new hand (transition from waiting to not-waiting)
-    const waiting = isWaiting();
-    if (lastWasWaiting && !waiting) {
-      console.log("[PokerBot] New hand detected.");
-      currentHandNum = (currentHandNum || 0) + 1;
-      await notifyHandStart();
-      updateStatus("Hand in progress...");
-    }
-    lastWasWaiting = waiting;
-
-    // Detect hand end (winner appears)
-    const winner = isWinner();
-    if (winner && !lastWasWinner) {
-      console.log("[PokerBot] Winner detected, hand ending.");
-      await notifyHandEnd();
-      updateStatus("Hand ended. Waiting...");
-      cachedSuggestion = null;
-      hideSuggestion();
-      hideButtons();
-    }
-    lastWasWinner = winner;
-
-    if (waiting) {
-      updateStatus("Waiting for next hand...");
-      hideButtons();
-      hideSuggestion();
-      return;
-    }
-
-    // Detect turn start/end
-    const myTurn = isMyTurn();
-    if (myTurn && !lastWasMyTurn) {
-      // Turn just started
-      console.log("[PokerBot] Your turn.");
-      turnGeneration++;
-      cachedSuggestion = null;
-      hideSuggestion();
-      autoPlayedThisTurn = false;
-
-      if (!autoMode) {
-        // Manual mode: show buttons
-        showButtons();
-        setButtonsLoading(false);
-        updateStatus("Your turn — choose an action");
+      // Safety: reset processing if it has been stuck too long
+      if (
+        processing &&
+        processingStartTime > 0 &&
+        Date.now() - processingStartTime > PROCESSING_TIMEOUT
+      ) {
+        console.warn(
+          "[PokerBot] Processing was stuck for too long, force-resetting.",
+        );
+        processing = false;
+        processingStartTime = 0;
+        updateStatus("Reset — was stuck");
       }
-    } else if (!myTurn && lastWasMyTurn) {
-      // Turn ended
-      hideButtons();
-      hideSuggestion();
-      cachedSuggestion = null;
-      autoPlayedThisTurn = false;
-      if (autoMode) {
-        updateStatus("Full auto ON — waiting...");
-      } else {
+
+      // Detect new hand (transition from waiting to not-waiting)
+      const waiting = isWaiting();
+      if (lastWasWaiting && !waiting) {
+        console.log("[PokerBot] New hand detected.");
+        currentHandNum = (currentHandNum || 0) + 1;
+        await notifyHandStart();
         updateStatus("Hand in progress...");
       }
-    }
+      lastWasWaiting = waiting;
 
-    // Level-triggered auto-play: fires every poll while it's our turn.
-    // Unlike edge-triggered, this ensures auto-play fires even if the
-    // exact transition poll was missed (e.g. processing was true).
-    if (myTurn && autoMode && !processing && !autoPlayedThisTurn) {
-      triggerAutoPlay();
-    }
+      // Detect hand end (winner appears)
+      const winner = isWinner();
+      if (winner && !lastWasWinner) {
+        console.log("[PokerBot] Winner detected, hand ending.");
+        await notifyHandEnd();
+        updateStatus("Hand ended. Waiting...");
+        cachedSuggestion = null;
+        hideSuggestion();
+        hideButtons();
+      }
+      lastWasWinner = winner;
 
-    lastWasMyTurn = myTurn;
+      if (waiting) {
+        updateStatus("Waiting for next hand...");
+        hideButtons();
+        hideSuggestion();
+        return;
+      }
+
+      // Detect turn start/end
+      const myTurn = isMyTurn();
+      if (myTurn && !lastWasMyTurn) {
+        // Turn just started
+        console.log("[PokerBot] Your turn.");
+        turnGeneration++;
+        cachedSuggestion = null;
+        hideSuggestion();
+        autoPlayedThisTurn = false;
+
+        if (!autoMode) {
+          // Manual mode: show buttons
+          showButtons();
+          setButtonsLoading(false);
+          updateStatus("Your turn — choose an action");
+        }
+      } else if (!myTurn && lastWasMyTurn) {
+        // Turn ended
+        hideButtons();
+        hideSuggestion();
+        cachedSuggestion = null;
+        autoPlayedThisTurn = false;
+        if (autoMode) {
+          updateStatus("Full auto ON — waiting...");
+        } else {
+          updateStatus("Hand in progress...");
+        }
+      }
+
+      // Level-triggered auto-play: fires every poll while it's our turn.
+      // Unlike edge-triggered, this ensures auto-play fires even if the
+      // exact transition poll was missed (e.g. processing was true).
+      if (myTurn && autoMode && !processing && !autoPlayedThisTurn) {
+        triggerAutoPlay();
+      }
+
+      lastWasMyTurn = myTurn;
+    } finally {
+      mainLoopRunning = false;
+    }
   }
 
   // ─── Message Listener (from popup) ─────────────────────────────

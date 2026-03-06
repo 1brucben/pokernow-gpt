@@ -78,6 +78,7 @@ export class BotServer {
     first_fetch: true,
   };
   private initialized: boolean = false;
+  private current_hand_num: number = 0;
 
   constructor(port: number = 3000) {
     this.port = port;
@@ -197,7 +198,27 @@ export class BotServer {
           big_blind,
           small_blind,
           available_actions,
+          hand_num,
+          community_cards,
         } = req.body;
+
+        // Auto-detect new hand if hand-start was missed
+        if (hand_num && hand_num !== this.current_hand_num) {
+          console.log(
+            `[Server] New hand detected via action request (hand ${hand_num}, was ${this.current_hand_num}). Auto-resetting.`,
+          );
+          this.current_hand_num = hand_num;
+          this.game.updateGameTypeAndBlinds(small_blind, big_blind, game_type);
+          this.table.nextHand();
+          this.table.setNumPlayers(num_players);
+          this.table.setPlayersInPot(num_players);
+          this.hand_history = [];
+          this.processed_logs = {
+            valid_msgs: [],
+            last_created: this.first_created,
+            first_fetch: true,
+          };
+        }
 
         // Update game info
         this.game.updateGameTypeAndBlinds(small_blind, big_blind, game_type);
@@ -240,6 +261,34 @@ export class BotServer {
         let bot_action: BotAction;
         try {
           await postProcessLogs(this.table.getLogsQueue(), this.game);
+
+          // Override street/runout with DOM-sourced community cards (source of truth)
+          if (community_cards && Array.isArray(community_cards)) {
+            if (community_cards.length === 0) {
+              this.table.setStreet("");
+              this.table.setRunout("");
+            } else {
+              const boardStr = community_cards.join(", ");
+              if (community_cards.length <= 3) {
+                this.table.setStreet("flop");
+              } else if (community_cards.length === 4) {
+                this.table.setStreet("turn");
+              } else {
+                this.table.setStreet("river");
+              }
+              // Format: first 3 in brackets, 4th in brackets, 5th in brackets
+              // e.g. "[8s, 7c, 10d]" or "[8s, 7c, 10d] [Ks]" or "[8s, 7c, 10d] [Ks] [2h]"
+              let runout = " [" + community_cards.slice(0, 3).join(", ") + "]";
+              if (community_cards.length >= 4) {
+                runout += " [" + community_cards[3] + "]";
+              }
+              if (community_cards.length >= 5) {
+                runout += " [" + community_cards[4] + "]";
+              }
+              this.table.setRunout(runout);
+            }
+          }
+
           const query = constructQuery(this.game);
           console.log("[Server] Query constructed, querying AI...");
           bot_action = await this.queryBotAction(query, this.query_retries);
@@ -302,6 +351,7 @@ export class BotServer {
         this.table.nextHand();
         this.table.setNumPlayers(num_players);
         this.table.setPlayersInPot(num_players);
+        if (num_players) this.current_hand_num++;
 
         // Reset processed_logs for new hand
         this.processed_logs = {
