@@ -110,6 +110,24 @@
   background: #f57c00;
 }
 
+/* Full Auto toggle */
+.auto-toggle-btn {
+  width: 100%;
+  margin-top: 6px;
+  background: #444;
+  font-size: 11px;
+  padding: 5px 6px;
+}
+.auto-toggle-btn:hover {
+  background: #555;
+}
+.auto-toggle-btn.auto-on {
+  background: #4caf50;
+}
+.auto-toggle-btn.auto-on:hover {
+  background: #45a049;
+}
+
 /* Toast notification */
 #poker-bot-toast {
   position: fixed;

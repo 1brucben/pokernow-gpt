@@ -20,6 +20,9 @@
   let cachedSuggestion = null; // { action, amount }
   let turnActive = false;
 
+  // Auto-mode: bot plays automatically without button clicks
+  let autoMode = false;
+
   // Config version tracking (for toast notifications)
   let lastConfigVersion = null;
 
@@ -365,6 +368,7 @@
         <button class="poker-bot-btn suggest-btn" id="poker-bot-suggest">💡 Suggest</button>
         <button class="poker-bot-btn autoplay-btn" id="poker-bot-autoplay">⚡ Auto-play</button>
       </div>
+      <button class="poker-bot-btn auto-toggle-btn" id="poker-bot-auto-toggle">🔄 Full Auto: OFF</button>
     `;
     document.body.appendChild(statusOverlay);
 
@@ -375,6 +379,9 @@
     document
       .getElementById("poker-bot-autoplay")
       .addEventListener("click", onAutoplayClick);
+    document
+      .getElementById("poker-bot-auto-toggle")
+      .addEventListener("click", onAutoToggleClick);
   }
 
   function updateStatus(text) {
@@ -539,6 +546,22 @@
     processing = false;
   }
 
+  function onAutoToggleClick() {
+    autoMode = !autoMode;
+    const btn = document.getElementById("poker-bot-auto-toggle");
+    if (btn) {
+      btn.textContent = autoMode ? "🔄 Full Auto: ON" : "🔄 Full Auto: OFF";
+      btn.classList.toggle("auto-on", autoMode);
+    }
+    if (autoMode) {
+      showToast("Full auto enabled — bot will play automatically");
+      updateStatus("Full auto ON");
+    } else {
+      showToast("Full auto disabled — manual mode");
+      updateStatus("Active — waiting for hand...");
+    }
+  }
+
   // ─── Main Loop ─────────────────────────────────────────────────
 
   let lastWasWaiting = false;
@@ -580,19 +603,56 @@
     // Detect turn start/end
     const myTurn = isMyTurn();
     if (myTurn && !lastWasMyTurn) {
-      // Turn just started — show buttons
-      console.log("[PokerBot] Your turn — showing controls.");
+      // Turn just started
+      console.log("[PokerBot] Your turn.");
       cachedSuggestion = null;
       hideSuggestion();
-      showButtons();
-      setButtonsLoading(false);
-      updateStatus("Your turn — choose an action");
+
+      if (autoMode && !processing) {
+        // Full auto: query AI and execute immediately
+        processing = true;
+        updateStatus("Auto: thinking...");
+        hideButtons();
+        try {
+          const response = await requestAction();
+          if (response && response.action) {
+            updateStatus(`Auto: ${response.action}`);
+            const success = await executeAction(
+              response.action,
+              response.amount,
+            );
+            if (success) {
+              updateStatus(`Auto played: ${response.action}`);
+            } else {
+              if (!clickCheck()) clickFold();
+              updateStatus("Auto fallback: check/fold");
+            }
+          } else {
+            if (!clickCheck()) clickFold();
+            updateStatus("Auto: no response, check/fold");
+          }
+        } catch (err) {
+          console.error("[PokerBot] Auto error:", err);
+          if (!clickCheck()) clickFold();
+          updateStatus("Auto error: check/fold");
+        }
+        processing = false;
+      } else if (!autoMode) {
+        // Manual mode: show buttons
+        showButtons();
+        setButtonsLoading(false);
+        updateStatus("Your turn — choose an action");
+      }
     } else if (!myTurn && lastWasMyTurn) {
       // Turn ended
       hideButtons();
       hideSuggestion();
       cachedSuggestion = null;
-      updateStatus("Hand in progress...");
+      if (autoMode) {
+        updateStatus("Full auto ON — waiting...");
+      } else {
+        updateStatus("Hand in progress...");
+      }
     }
     lastWasMyTurn = myTurn;
   }
