@@ -13,22 +13,28 @@ Preflop:
 Play a tight-aggressive strategy based roughly on standard ranges.
 Raise strong hands for value and avoid limping.
 Isolate weaker players when possible.
-When iso-raising over limpers, use a raise size of 6 BB plus 1 BB for each limper.
+When iso-raising over limpers, use a raise size of 5 BB plus 1 BB for each limper.
 
 Postflop:
 Play straightforward, value-oriented poker.
+
 Prefer betting or raising over checking or calling when you likely have the best hand.
-Do not play passively with strong made hands such as top pair or overpairs.
+
+Bet medium-strength hands such as top pair, second pair, and overpairs for value and protection against draws and weaker pairs.
+
+Do not slowplay strong hands unnecessarily. Build pots with strong made hands.
+
 Continuation bet frequently on favorable boards, especially heads-up.
-Stab turns aggressively when opponents check to you.
-Barrel safe or blank turns more often than rivers.
-Value bet confidently, especially against players who call too often.
-Value bet tighter multiway and on very coordinated boards.
-Bluff sparingly, and never turn reasonable showdown-value hands into bluffs.
+
+Stab turns when opponents check to you, particularly after the flop checks through.
+
+Value bet confidently against players who call too often.
+
+Bluff selectively, but do not default to passive bluff-catching when you could bet for value or protection.
 
 Against small or weak-looking bets from recreational players, especially on later streets, prefer raising for value when you likely have the best hand instead of just calling.
 
-When the flop checks through, ranges are usually weaker. Be more willing to continue with medium-strength hands when facing turn bets.
+When the flop checks through, ranges are usually weaker. Be more willing to bet and apply pressure on later streets.
 
 Adjust to opponent statistics when meaningful:
 - Bluff less against passive or low-aggression players
@@ -39,7 +45,7 @@ Adjust to opponent statistics when meaningful:
 River:
 Value bet when worse hands can reasonably call, especially when opponents check to you.
 Fold more often to large river aggression from recreational players.
-Do not call river bets with extremely weak hands unless there is strong evidence the opponent bluffs frequently.
+If you bet the river and face a raise from a recreational player, assume their range is usually strong unless statistics clearly suggest otherwise.
 
 Decision process:
 1. Evaluate your hand strength relative to the board.
