@@ -99,12 +99,33 @@
 
   function getCommunityCards() {
     const cards = [];
-    const cardDivs = document.querySelectorAll(".table-cards > .table-card");
+    // Try multiple selectors in case PokerNow's DOM structure varies
+    const selectors = [
+      ".table-cards > .table-card",
+      ".table-cards .table-card",
+      ".community-cards .card",
+      ".table-card",
+    ];
+    let cardDivs = [];
+    for (const sel of selectors) {
+      cardDivs = document.querySelectorAll(sel);
+      if (cardDivs.length > 0) break;
+    }
     for (const div of cardDivs) {
       const val = div.querySelector(".value");
       const suit = div.querySelector(".sub-suit");
       if (val && suit) {
         cards.push(val.textContent.trim() + suit.textContent.trim());
+      }
+    }
+    if (cards.length === 0) {
+      // Fallback: try reading card values from any visible board area
+      const boardArea = document.querySelector(".table-cards");
+      if (boardArea) {
+        console.log(
+          "[PokerBot] Board area found but no cards matched. innerHTML:",
+          boardArea.innerHTML.substring(0, 500),
+        );
       }
     }
     return cards;
@@ -115,6 +136,12 @@
   // are treated as empty until the DOM actually shows different cards.
   function getCleanCommunityCards() {
     const raw = getCommunityCards();
+    console.log(
+      "[PokerBot] Raw community cards:",
+      raw,
+      "Stale snapshot:",
+      staleCommunitySnapshot,
+    );
     if (staleCommunitySnapshot !== null) {
       // Still showing the same cards as when the new hand was detected → stale
       if (raw.join(",") === staleCommunitySnapshot) {

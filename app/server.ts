@@ -202,6 +202,10 @@ export class BotServer {
           community_cards,
         } = req.body;
 
+        console.log(
+          `[Server] Action request — hand: ${hand}, community_cards: ${JSON.stringify(community_cards)}, available: ${JSON.stringify(available_actions)}`,
+        );
+
         // Auto-detect new hand if hand-start was missed
         if (hand_num && hand_num !== this.current_hand_num) {
           console.log(
@@ -263,30 +267,29 @@ export class BotServer {
           await postProcessLogs(this.table.getLogsQueue(), this.game);
 
           // Override street/runout with DOM-sourced community cards (source of truth)
-          if (community_cards && Array.isArray(community_cards)) {
-            if (community_cards.length === 0) {
-              this.table.setStreet("");
-              this.table.setRunout("");
+          // Only override if the extension actually found cards — if empty, trust log processing
+          if (
+            community_cards &&
+            Array.isArray(community_cards) &&
+            community_cards.length > 0
+          ) {
+            if (community_cards.length <= 3) {
+              this.table.setStreet("flop");
+            } else if (community_cards.length === 4) {
+              this.table.setStreet("turn");
             } else {
-              const boardStr = community_cards.join(", ");
-              if (community_cards.length <= 3) {
-                this.table.setStreet("flop");
-              } else if (community_cards.length === 4) {
-                this.table.setStreet("turn");
-              } else {
-                this.table.setStreet("river");
-              }
-              // Format: first 3 in brackets, 4th in brackets, 5th in brackets
-              // e.g. "[8s, 7c, 10d]" or "[8s, 7c, 10d] [Ks]" or "[8s, 7c, 10d] [Ks] [2h]"
-              let runout = " [" + community_cards.slice(0, 3).join(", ") + "]";
-              if (community_cards.length >= 4) {
-                runout += " [" + community_cards[3] + "]";
-              }
-              if (community_cards.length >= 5) {
-                runout += " [" + community_cards[4] + "]";
-              }
-              this.table.setRunout(runout);
+              this.table.setStreet("river");
             }
+            // Format: first 3 in brackets, 4th in brackets, 5th in brackets
+            // e.g. "[8s, 7c, 10d]" or "[8s, 7c, 10d] [Ks]" or "[8s, 7c, 10d] [Ks] [2h]"
+            let runout = " [" + community_cards.slice(0, 3).join(", ") + "]";
+            if (community_cards.length >= 4) {
+              runout += " [" + community_cards[3] + "]";
+            }
+            if (community_cards.length >= 5) {
+              runout += " [" + community_cards[4] + "]";
+            }
+            this.table.setRunout(runout);
           }
 
           const query = constructQuery(this.game);
@@ -577,7 +580,16 @@ export class BotServer {
     }
     try {
       await sleep(1000);
+      console.log(
+        `[AI] Requesting action (attempt ${retry_counter + 1}/${retries + 1})...`,
+      );
       const ai_response = await this.ai_service.query(query, this.hand_history);
+      console.log(
+        `[AI] Raw response: ${ai_response.curr_message?.text_content}`,
+      );
+      console.log(
+        `[AI] Parsed: ${ai_response.bot_action.action_str}${ai_response.bot_action.bet_size_in_BBs ? " " + ai_response.bot_action.bet_size_in_BBs + " BB" : ""}`,
+      );
       this.hand_history = ai_response.prev_messages;
 
       if (this.isValidAction(ai_response.bot_action)) {
@@ -586,10 +598,12 @@ export class BotServer {
         }
         return ai_response.bot_action;
       }
-      console.log("[Server] Invalid bot action, retrying.");
+      console.log(
+        `[AI] Invalid action "${ai_response.bot_action.action_str}", retrying...`,
+      );
       return this.queryBotAction(query, retries, retry_counter + 1);
     } catch (err) {
-      console.log("[Server] AI query error:", err, "retrying.");
+      console.log("[AI] Query error, retrying...", err);
       return this.queryBotAction(query, retries, retry_counter + 1);
     }
   }
@@ -635,9 +649,15 @@ export class BotServer {
     }
 
     // Fallback
-    if (available.check) return defaultCheckAction;
-    if (available.fold) return defaultFoldAction;
-    return defaultCheckAction;
+    const fallback = available.check
+      ? defaultCheckAction
+      : available.fold
+        ? defaultFoldAction
+        : defaultCheckAction;
+    console.log(
+      `[Server] AI wanted "${action}" but it's not available. Falling back to "${fallback.action_str}".`,
+    );
+    return fallback;
   }
 
   async start() {

@@ -45,6 +45,10 @@ export class OpenAIService extends AIService {
       }
     }
 
+    console.log(
+      "[AI] Sending messages:",
+      JSON.stringify(prev_messages, null, 2),
+    );
     const processed_messages = this.processMessages(prev_messages);
     const completion = await this.agent.chat.completions.create({
       messages: processed_messages,

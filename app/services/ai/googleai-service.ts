@@ -65,6 +65,11 @@ export class GoogleAIService extends AIService {
       }
     }
 
+    console.log(
+      "[AI] Sending messages:",
+      JSON.stringify(prev_messages, null, 2),
+    );
+    console.log("[AI] Input:", input);
     const processed_messages = this.processMessages(prev_messages);
 
     const chat = this.model.startChat({
