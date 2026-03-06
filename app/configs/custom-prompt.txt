@@ -10,6 +10,7 @@ stats are more reliable.
 
 Preflop:
 Play slightly tighter than GTO. Raise larger and isolate weaker players when possible.
+Always use a preflop raise (PFR) size of 5 BB plus 1 BB per limper.
 
 Postflop:
 Play straightforward value-oriented poker.

@@ -521,14 +521,8 @@ export class Table {
     return "";
   }
 
-  public getSeatNumberFromId(player_id: string): number {
-    const seat_number = this.id_to_table_seat.get(player_id);
-    if (seat_number !== undefined) {
-      return seat_number;
-    }
-    throw new Error(
-      `Could not retrieve seat number for player with id: ${player_id}.`,
-    );
+  public getSeatNumberFromId(player_id: string): number | undefined {
+    return this.id_to_table_seat.get(player_id);
   }
   public setIdToTableSeat(map: Map<string, number>): void {
     this.id_to_table_seat = map;

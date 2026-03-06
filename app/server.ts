@@ -494,6 +494,12 @@ export class BotServer {
       let first_seat_number = this.table.getSeatNumberFromId(
         this.table.getFirstSeatOrderId(),
       );
+      if (first_seat_number === undefined) {
+        console.warn(
+          `[Server] Could not find seat for SB player ${this.table.getFirstSeatOrderId()}, defaulting to seat 1`,
+        );
+        first_seat_number = 1;
+      }
       this.table.setIdToPosition(first_seat_number);
       this.table.convertAllOrdersToPosition();
 
