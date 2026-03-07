@@ -10,6 +10,8 @@
   const BET_TYPE_DELAY = 150; // ms delay between keystrokes when typing bet
   const REQUEST_TIMEOUT = 30000; // ms before aborting a backend request
   const PROCESSING_TIMEOUT = 15000; // ms before force-resetting stuck processing flag
+  const SUGGEST_RETRY_ATTEMPTS = 3;
+  const SUGGEST_RETRY_DELAY = 900;
 
   let enabled = false;
   let botName = "";
@@ -598,7 +600,22 @@
     updateStatus("Querying AI...");
 
     try {
-      const response = await requestAction();
+      let response = null;
+      for (let attempt = 0; attempt < SUGGEST_RETRY_ATTEMPTS; attempt++) {
+        response = await requestAction();
+        if (!(response && response.status === "retry")) {
+          break;
+        }
+
+        const retryDelay =
+          Number(response.retry_after_ms) || SUGGEST_RETRY_DELAY;
+        console.log(
+          `[PokerBot] Suggest retry ${attempt + 1}/${SUGGEST_RETRY_ATTEMPTS}: ${response.reason || "server requested retry"} (waiting ${retryDelay}ms)`,
+        );
+        updateStatus("Syncing hand state...");
+        await new Promise((resolve) => setTimeout(resolve, retryDelay));
+      }
+
       if (response && response.action) {
         cachedSuggestion = { action: response.action, amount: response.amount };
         showSuggestion(response.action, response.amount);

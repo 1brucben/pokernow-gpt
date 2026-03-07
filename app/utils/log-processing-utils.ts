@@ -45,6 +45,7 @@ export async function postProcessLogs(
   game: Game,
 ) {
   const table = game.getTable();
+  let current_street = table.getStreet() || "preflop";
   while (!logs_queue.isEmpty()) {
     const log = logs_queue.dequeue();
     //process player action
@@ -60,10 +61,12 @@ export async function postProcessLogs(
           player_id,
           action,
           convertToBBs(Number(bet_size), game.getBigBlind()),
+          current_street,
         );
         table.updatePlayerActions(player_action);
       } else {
         const street = log[0];
+        current_street = street.toLowerCase();
         const runout = log[1];
         table.setStreet(street.toLowerCase());
         table.setRunout(

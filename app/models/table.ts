@@ -21,6 +21,7 @@ export class Table {
 
   private logs_queue: Queue<Array<string>>;
   private player_actions: Array<PlayerAction>;
+  private hand_action_history: Array<PlayerAction>;
 
   private id_to_action_num: Map<string, number>;
   private id_to_initial_stacks: Map<string, number>;
@@ -78,6 +79,7 @@ export class Table {
 
     this.logs_queue = new Queue();
     this.player_actions = new Array<PlayerAction>();
+    this.hand_action_history = new Array<PlayerAction>();
 
     this.id_to_action_num = new Map<string, number>();
     this.id_to_initial_stacks = new Map<string, number>();
@@ -176,8 +178,12 @@ export class Table {
   public getPlayerActions(): Array<PlayerAction> {
     return this.player_actions;
   }
+  public getHandActionHistory(): Array<PlayerAction> {
+    return this.hand_action_history;
+  }
   public updatePlayerActions(player_action: PlayerAction): void {
     this.player_actions.push(player_action);
+    this.hand_action_history.push(player_action);
   }
   public resetPlayerActions(): void {
     this.player_actions = new Array<PlayerAction>();
@@ -624,6 +630,7 @@ export class Table {
 
     this.logs_queue = new Queue<string[]>();
     this.player_actions = new Array<PlayerAction>();
+    this.hand_action_history = new Array<PlayerAction>();
 
     this.id_to_action_num = new Map<string, number>();
     this.id_to_position = new Map<string, string>();

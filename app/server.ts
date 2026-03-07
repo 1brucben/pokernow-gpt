@@ -3,8 +3,6 @@ import dotenv from "dotenv";
 import fs from "fs";
 import path from "path";
 
-import { ChatCompletionMessageParam } from "openai/resources/chat/completions.mjs";
-
 import { sleep } from "./helpers/bot-helper.ts";
 import {
   AIService,
@@ -22,8 +20,12 @@ import { LogService } from "./services/log-service.ts";
 import { DBService } from "./services/db-service.ts";
 import { PlayerService } from "./services/player-service.ts";
 import { AIServiceFactory } from "./helpers/ai-service-factory.ts";
+import { shouldResetForEmptyBoard } from "./helpers/hand-state-helper.ts";
 
-import { constructQuery } from "./helpers/construct-query-helper.ts";
+import {
+  constructQuery,
+  extractHandHistoryBlock,
+} from "./helpers/construct-query-helper.ts";
 import { DebugMode } from "./utils/error-handling-utils.ts";
 import {
   postProcessLogs,
@@ -71,7 +73,6 @@ export class BotServer {
 
   // Hand state
   private first_created: string = "";
-  private hand_history: ChatCompletionMessageParam | any = [];
   private processed_logs: ProcessedLogs = {
     valid_msgs: [],
     last_created: "",
@@ -108,6 +109,18 @@ export class BotServer {
       }
       next();
     });
+  }
+
+  private getNextHandLogCursor(): string {
+    return this.processed_logs.last_created || this.first_created || "";
+  }
+
+  private resetProcessedLogsForNewHand(): void {
+    this.processed_logs = {
+      valid_msgs: [],
+      last_created: this.getNextHandLogCursor(),
+      first_fetch: true,
+    };
   }
 
   private setupRoutes() {
@@ -163,7 +176,6 @@ export class BotServer {
 
         // Reset hand state
         this.first_created = "";
-        this.hand_history = [];
         this.processed_logs = {
           valid_msgs: [],
           last_created: "",
@@ -189,6 +201,12 @@ export class BotServer {
       }
 
       try {
+        const sendRetry = (reason: string, retry_after_ms: number = 800) => {
+          const state_summary = `street=${this.table.getStreet() || "preflop"}, runout=${this.table.getRunout() || "none"}, history_actions=${this.table.getHandActionHistory().length}, current_actions=${this.table.getPlayerActions().length}, first_fetch=${this.processed_logs.first_fetch}, last_created=${this.processed_logs.last_created || "none"}`;
+          console.log(`[Server] ${reason} (${state_summary})`);
+          return res.json({ status: "retry", retry_after_ms, reason });
+        };
+
         const {
           hand,
           pot_size,
@@ -216,12 +234,17 @@ export class BotServer {
           this.table.nextHand();
           this.table.setNumPlayers(num_players);
           this.table.setPlayersInPot(num_players);
-          this.hand_history = [];
-          this.processed_logs = {
-            valid_msgs: [],
-            last_created: this.first_created,
-            first_fetch: true,
-          };
+          this.resetProcessedLogsForNewHand();
+        }
+
+        if (shouldResetForEmptyBoard(this.table, community_cards)) {
+          console.log(
+            "[Server] Empty-board request arrived with stale postflop state. Auto-resetting hand state.",
+          );
+          this.table.nextHand();
+          this.table.setNumPlayers(num_players);
+          this.table.setPlayersInPot(num_players);
+          this.resetProcessedLogsForNewHand();
         }
 
         // Update game info
@@ -235,6 +258,9 @@ export class BotServer {
           this.processed_logs = await this.pullAndProcessLogs(
             this.processed_logs.last_created,
             this.processed_logs.first_fetch,
+          );
+          console.log(
+            `[Server] Log sync result: first_fetch=${this.processed_logs.first_fetch}, valid_msgs=${this.processed_logs.valid_msgs.length}, last_created=${this.processed_logs.last_created || "none"}`,
           );
         } catch (err) {
           console.log("[Server] Failed to pull logs:", err);
@@ -251,11 +277,17 @@ export class BotServer {
         );
         const hero = this.game.getHero();
         if (!hero) {
-          this.game.createAndSetHero(
-            this.table.getIdFromName(this.bot_name),
-            hand,
-            hero_stack_bbs,
-          );
+          try {
+            this.game.createAndSetHero(
+              this.table.getIdFromName(this.bot_name),
+              hand,
+              hero_stack_bbs,
+            );
+          } catch {
+            return sendRetry(
+              "Hero mapping is not ready yet for this hand. Retrying after logs catch up.",
+            );
+          }
         } else {
           hero.setHand(hand);
           hero.setStackSize(hero_stack_bbs);
@@ -265,36 +297,60 @@ export class BotServer {
         let bot_action: BotAction;
         try {
           await postProcessLogs(this.table.getLogsQueue(), this.game);
+          console.log(
+            `[Server] State after log processing: street=${this.table.getStreet() || "preflop"}, runout=${this.table.getRunout() || "none"}, history_actions=${this.table.getHandActionHistory().length}, current_actions=${this.table.getPlayerActions().length}, players_in_pot=${this.table.getPlayersInPot()}`,
+          );
 
-          // Override street/runout with DOM-sourced community cards (source of truth)
-          // Only override if the extension actually found cards — if empty, trust log processing
-          if (
-            community_cards &&
-            Array.isArray(community_cards) &&
-            community_cards.length > 0
-          ) {
-            if (community_cards.length <= 3) {
-              this.table.setStreet("flop");
-            } else if (community_cards.length === 4) {
-              this.table.setStreet("turn");
-            } else {
-              this.table.setStreet("river");
+          if (shouldResetForEmptyBoard(this.table, community_cards)) {
+            console.log(
+              "[Server] Processed state is inconsistent with an empty board. Resetting hand state and requesting retry.",
+            );
+            this.table.nextHand();
+            this.table.setNumPlayers(num_players);
+            this.table.setPlayersInPot(num_players);
+            this.resetProcessedLogsForNewHand();
+            return sendRetry(
+              "Processed state was inconsistent with the empty board.",
+            );
+          } else if (!this.isTableReadyForQuery()) {
+            return sendRetry(
+              "Table positions are not ready yet for this hand. Retrying after logs catch up.",
+            );
+          } else {
+            // Override street/runout with DOM-sourced community cards (source of truth)
+            // Only override if the extension actually found cards — if empty, trust log processing
+            if (
+              community_cards &&
+              Array.isArray(community_cards) &&
+              community_cards.length > 0
+            ) {
+              if (community_cards.length <= 3) {
+                this.table.setStreet("flop");
+              } else if (community_cards.length === 4) {
+                this.table.setStreet("turn");
+              } else {
+                this.table.setStreet("river");
+              }
+              let runout = " [" + community_cards.slice(0, 3).join(", ") + "]";
+              if (community_cards.length >= 4) {
+                runout += " [" + community_cards[3] + "]";
+              }
+              if (community_cards.length >= 5) {
+                runout += " [" + community_cards[4] + "]";
+              }
+              this.table.setRunout(runout);
             }
-            // Format: first 3 in brackets, 4th in brackets, 5th in brackets
-            // e.g. "[8s, 7c, 10d]" or "[8s, 7c, 10d] [Ks]" or "[8s, 7c, 10d] [Ks] [2h]"
-            let runout = " [" + community_cards.slice(0, 3).join(", ") + "]";
-            if (community_cards.length >= 4) {
-              runout += " [" + community_cards[3] + "]";
+
+            const query = constructQuery(this.game);
+            const hand_history_block = extractHandHistoryBlock(query);
+            if (hand_history_block) {
+              console.log(
+                `[Server] Hand history block:\n${hand_history_block}`,
+              );
             }
-            if (community_cards.length >= 5) {
-              runout += " [" + community_cards[4] + "]";
-            }
-            this.table.setRunout(runout);
+            console.log("[Server] Query constructed, querying AI...");
+            bot_action = await this.queryBotAction(query, this.query_retries);
           }
-
-          const query = constructQuery(this.game);
-          console.log("[Server] Query constructed, querying AI...");
-          bot_action = await this.queryBotAction(query, this.query_retries);
           this.table.resetPlayerActions();
         } catch (err) {
           console.error(
@@ -350,18 +406,13 @@ export class BotServer {
         const { num_players, game_type, big_blind, small_blind } = req.body;
 
         this.game.updateGameTypeAndBlinds(small_blind, big_blind, game_type);
-        this.hand_history = [];
         this.table.nextHand();
         this.table.setNumPlayers(num_players);
         this.table.setPlayersInPot(num_players);
         if (num_players) this.current_hand_num++;
 
         // Reset processed_logs for new hand
-        this.processed_logs = {
-          valid_msgs: [],
-          last_created: this.first_created,
-          first_fetch: true,
-        };
+        this.resetProcessedLogsForNewHand();
 
         console.log(
           `[Server] Hand started. Players: ${num_players}, Blinds: ${small_blind}/${big_blind}`,
@@ -386,15 +437,29 @@ export class BotServer {
 
         // Process end-of-hand logs
         try {
+          const log_cursor = this.getNextHandLogCursor();
           const processed = await this.pullAndProcessLogs(
-            this.first_created,
+            log_cursor,
             this.processed_logs.first_fetch,
           );
-          await postProcessLogsAfterHand(processed.valid_msgs, this.game);
-          await this.table.processPlayers();
+          this.processed_logs = {
+            valid_msgs: [],
+            last_created: processed.last_created || log_cursor,
+            first_fetch: true,
+          };
+          if (processed.valid_msgs.length > 0) {
+            await postProcessLogsAfterHand(processed.valid_msgs, this.game);
+            await this.table.processPlayers();
+          } else {
+            console.log(
+              "[Server] Hand-end processing skipped because the current hand never produced a complete synchronized log snapshot.",
+            );
+          }
         } catch (err) {
           console.log("[Server] Failed to process end-of-hand:", err);
         }
+
+        this.table.nextHand();
 
         res.json({ status: "ok" });
       } catch (err: any) {
@@ -506,21 +571,41 @@ export class BotServer {
     last_created: string,
     first_fetch: boolean,
   ): Promise<ProcessedLogs> {
+    console.log(
+      `[Server] Pulling logs with first_fetch=${first_fetch}, last_created=${last_created || "none"}`,
+    );
     const log = await this.log_service.fetchData("", last_created);
     if (log.code === "success") {
       let data = this.log_service.getData(log);
       let msg = this.log_service.getMsg(data);
+      console.log(
+        `[Server] Fetched ${msg.length} raw log messages before pruning.`,
+      );
       if (first_fetch) {
         data = this.log_service.pruneLogsBeforeCurrentHand(data);
         msg = this.log_service.getMsg(data);
+        const created_at = this.log_service.getCreatedAt(data);
+        const stack_msg = getPlayerStacksMsg(msg);
+        console.log(
+          `[Server] First-fetch bootstrap: pruned_msgs=${msg.length}, has_stack_msg=${!!stack_msg}, created_at_count=${created_at.length}`,
+        );
+
+        if (!stack_msg || created_at.length === 0) {
+          console.log(
+            "[Server] First-fetch logs do not yet contain a complete starting-hand snapshot. Waiting for next retry.",
+          );
+          return {
+            valid_msgs: validateAllMsg(msg),
+            last_created: last_created,
+            first_fetch: true,
+          };
+        }
+
         this.table.setPlayerInitialStacksFromMsg(msg, this.game.getBigBlind());
 
         first_fetch = false;
-        this.first_created = this.log_service.getLast(
-          this.log_service.getCreatedAt(data),
-        );
+        this.first_created = this.log_service.getLast(created_at);
 
-        let stack_msg = getPlayerStacksMsg(msg);
         let id_to_stack_map = getIdToInitialStackFromMsg(
           stack_msg,
           this.game.getBigBlind(),
@@ -544,6 +629,16 @@ export class BotServer {
 
       let only_valid = validateAllMsg(msg);
       preProcessLogs(only_valid, this.game);
+      if (!this.table.getFirstSeatOrderId()) {
+        console.log(
+          `[Server] No first seat order id found yet after preprocessing ${only_valid.length} valid messages.`,
+        );
+        return {
+          valid_msgs: only_valid,
+          last_created: last_created,
+          first_fetch: first_fetch,
+        };
+      }
       let first_seat_number = this.table.getSeatNumberFromId(
         this.table.getFirstSeatOrderId(),
       );
@@ -569,6 +664,18 @@ export class BotServer {
     }
   }
 
+  private isTableReadyForQuery(): boolean {
+    try {
+      const hero_id = this.game.getHero()
+        ? this.game.getHero()!.getPlayerId()
+        : this.table.getIdFromName(this.bot_name);
+      this.table.getPlayerPositionFromId(hero_id);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   private async queryBotAction(
     query: string,
     retries: number,
@@ -583,19 +690,15 @@ export class BotServer {
       console.log(
         `[AI] Requesting action (attempt ${retry_counter + 1}/${retries + 1})...`,
       );
-      const ai_response = await this.ai_service.query(query, this.hand_history);
+      const ai_response = await this.ai_service.query(query, []);
       console.log(
         `[AI] Raw response: ${ai_response.curr_message?.text_content}`,
       );
       console.log(
         `[AI] Parsed: ${ai_response.bot_action.action_str}${ai_response.bot_action.bet_size_in_BBs ? " " + ai_response.bot_action.bet_size_in_BBs + " BB" : ""}`,
       );
-      this.hand_history = ai_response.prev_messages;
 
       if (this.isValidAction(ai_response.bot_action)) {
-        if (ai_response.curr_message) {
-          this.hand_history.push(ai_response.curr_message);
-        }
         return ai_response.bot_action;
       }
       console.log(

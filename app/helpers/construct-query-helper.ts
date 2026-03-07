@@ -3,6 +3,7 @@ import { rankBoard } from "phe";
 import { Game } from "../models/game.ts";
 import { PlayerAction } from "../models/player-action.ts";
 import { Table } from "../models/table.ts";
+import { Action } from "../utils/log-processing-utils.ts";
 
 export function constructQuery(game: Game): string {
   const table = game.getTable();
@@ -19,8 +20,9 @@ export function constructQuery(game: Game): string {
   const players_in_pot = table.getPlayersInPot();
   const player_stacks = table.getPlayerInitialStacks();
   const pot_size = table.getPot();
-  const player_actions = table.getPlayerActions();
+  const hand_action_history = table.getHandActionHistory();
   const player_positions = table.getPlayerPositions();
+  const estimated_pot_size = estimatePotSizeInBBs(hand_action_history, street);
 
   let query = "";
 
@@ -34,12 +36,33 @@ export function constructQuery(game: Game): string {
     defineStacks(player_stacks, player_positions, hero_id),
     "\n",
   );
-  query = query.concat(definePotSize(pot_size), `\n`);
-  query = query.concat(defineActions(player_actions, table), "\n");
+  query = query.concat(definePotSize(pot_size, estimated_pot_size), `\n`);
+  query = query.concat(
+    defineActionHistory(hand_action_history, street, table),
+    "\n",
+  );
   query = query.concat(defineStats(player_positions, table, hero_name), "\n");
   query = query.concat(defineOutput());
 
   return query;
+}
+
+export function extractHandHistoryBlock(query: string): string {
+  const history_header = "Hand history so far, grouped by street:\n";
+  const stats_header = "\nHere are the stats of the other players in the pot";
+
+  const history_start = query.indexOf(history_header);
+  if (history_start === -1) {
+    return "";
+  }
+
+  const content_start = history_start + history_header.length;
+  const stats_start = query.indexOf(stats_header, content_start);
+  if (stats_start === -1) {
+    return query.slice(content_start).trim();
+  }
+
+  return query.slice(content_start, stats_start).trim();
 }
 
 function defineObjective(position: string, stack_size: number): string {
@@ -153,28 +176,119 @@ function defineStacks(
   return query;
 }
 
-function definePotSize(pot_size_in_BBs: number): string {
-  return `The current pot size before any actions were made in the street is ${pot_size_in_BBs} BB.`;
+function definePotSize(
+  displayed_pot_size_in_BBs: number,
+  estimated_pot_size_in_BBs: number,
+): string {
+  if (estimated_pot_size_in_BBs > displayed_pot_size_in_BBs + 0.01) {
+    return `The current pot size is approximately ${estimated_pot_size_in_BBs} BB based on the betting history. The UI-reported pot currently reads ${displayed_pot_size_in_BBs} BB, so use the betting history as the source of truth.`;
+  }
+
+  return `The current displayed pot size is ${displayed_pot_size_in_BBs} BB. This includes blinds and any completed actions that are already in the middle before my next decision.`;
 }
 
-function defineActions(
-  player_actions: Array<PlayerAction>,
+function estimatePotSizeInBBs(
+  hand_action_history: Array<PlayerAction>,
+  current_street: string,
+): number {
+  const effective_current_street = normalizeStreet(current_street);
+  const street_order = ["preflop", "flop", "turn", "river"];
+  const current_street_index = street_order.indexOf(effective_current_street);
+  const streets_to_include =
+    current_street_index === -1
+      ? ["preflop"]
+      : street_order.slice(0, current_street_index + 1);
+
+  let pot_size_in_BBs = 0;
+
+  for (const street_name of streets_to_include) {
+    const committed_by_player = new Map<string, number>();
+    const street_actions = hand_action_history.filter(
+      (player_action) =>
+        normalizeStreet(player_action.getStreet()) === street_name,
+    );
+
+    for (const player_action of street_actions) {
+      const action = player_action.getAction();
+      if (
+        action !== Action.POST &&
+        action !== Action.CALL &&
+        action !== Action.BET &&
+        action !== Action.RAISE
+      ) {
+        continue;
+      }
+
+      const player_id = player_action.getPlayerId();
+      const previous_committed = committed_by_player.get(player_id) ?? 0;
+      const next_committed = Math.max(
+        previous_committed,
+        player_action.getBetAmount(),
+      );
+
+      pot_size_in_BBs += next_committed - previous_committed;
+      committed_by_player.set(player_id, next_committed);
+    }
+  }
+
+  return Math.round(pot_size_in_BBs * 100) / 100;
+}
+
+function normalizeStreet(street: string): string {
+  return street || "preflop";
+}
+
+function formatActionsForStreet(
+  street_actions: Array<PlayerAction>,
   table: Table,
 ): string {
-  let query =
-    "Here are the previous actions in this street, defined in the format {position action bet_size_in_BBs}:\n";
-  for (var i = 0; i < player_actions.length; i++) {
-    let player_pos = table.getPlayerPositionFromId(
-      player_actions[i].getPlayerId(),
-    );
-    let player_action_string = player_actions[i].toString();
-    let curr = `{${player_pos} ${player_action_string}}`;
-    if (i != player_actions.length - 1) {
-      curr = curr.concat(", ");
-    }
-    query = query.concat(curr);
+  if (street_actions.length === 0) {
+    return "none";
   }
-  return query;
+
+  return street_actions
+    .map((player_action) => {
+      const player_pos = table.getPlayerPositionFromId(
+        player_action.getPlayerId(),
+      );
+      return `{${player_pos} ${player_action.toString()}}`;
+    })
+    .join(", ");
+}
+
+function defineActionHistory(
+  hand_action_history: Array<PlayerAction>,
+  current_street: string,
+  table: Table,
+): string {
+  const effective_current_street = normalizeStreet(current_street);
+  const street_order = ["preflop", "flop", "turn", "river"];
+  const grouped_actions = new Map<string, Array<PlayerAction>>();
+
+  for (const player_action of hand_action_history) {
+    const action_street = normalizeStreet(player_action.getStreet());
+    if (!street_order.includes(action_street)) {
+      continue;
+    }
+
+    if (!grouped_actions.has(action_street)) {
+      grouped_actions.set(action_street, []);
+    }
+    grouped_actions.get(action_street)!.push(player_action);
+  }
+
+  const current_street_index = street_order.indexOf(effective_current_street);
+  const streets_to_include =
+    current_street_index === -1
+      ? ["preflop"]
+      : street_order.slice(0, current_street_index + 1);
+
+  const history_lines = streets_to_include.map((street_name) => {
+    const street_actions = grouped_actions.get(street_name) ?? [];
+    return `${street_name}: ${formatActionsForStreet(street_actions, table)}`;
+  });
+
+  return `Hand history so far, grouped by street:\n${history_lines.join("\n")}`;
 }
 
 function defineStats(

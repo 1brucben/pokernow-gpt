@@ -90,9 +90,22 @@ export class LogService {
     return res;
   }
 
+  private getValidLogs(data: Data): Array<Log> {
+    if (!data || !Array.isArray(data.logs)) {
+      return [];
+    }
+
+    return data.logs.filter(
+      (element): element is Log =>
+        !!element &&
+        typeof element.msg === "string" &&
+        typeof element.created_at === "string",
+    );
+  }
+
   getMsg(data: Data): Array<string> {
     const res = new Array<string>();
-    data.logs.forEach((element) => {
+    this.getValidLogs(data).forEach((element) => {
       res.push(element.msg);
     });
     return res;
@@ -100,7 +113,7 @@ export class LogService {
 
   getCreatedAt(data: Data): Array<string> {
     const res = new Array<string>();
-    data.logs.forEach((element) => {
+    this.getValidLogs(data).forEach((element) => {
       res.push(element.created_at);
     });
     return res;
@@ -117,15 +130,20 @@ export class LogService {
   pruneLogsBeforeCurrentHand(data: Data): Data {
     //starts from the top of logs
     const log_arr = new Array<Log>();
+    const logs = this.getValidLogs(data);
     let i = 0;
-    while (
-      i < data.logs.length &&
-      !data.logs[i].msg.includes("starting hand #")
-    ) {
-      log_arr.push(data.logs[i]);
+    while (i < logs.length && !logs[i].msg.includes("starting hand #")) {
+      log_arr.push(logs[i]);
       i += 1;
     }
-    log_arr.push(data.logs[i]);
+    if (i >= logs.length) {
+      return {
+        logs: [],
+      };
+    }
+    if (i < logs.length) {
+      log_arr.push(logs[i]);
+    }
     return {
       logs: log_arr,
     };

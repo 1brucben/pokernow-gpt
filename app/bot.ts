@@ -1,5 +1,4 @@
 import prompt from "prompt-sync";
-import { ChatCompletionMessageParam } from "openai/resources/chat/completions.mjs";
 
 import { sleep } from "./helpers/bot-helper.ts";
 
@@ -18,7 +17,10 @@ import { LogService } from "./services/log-service.ts";
 import { PlayerService } from "./services/player-service.ts";
 import { PuppeteerService } from "./services/puppeteer-service.ts";
 
-import { constructQuery } from "./helpers/construct-query-helper.ts";
+import {
+  constructQuery,
+  extractHandHistoryBlock,
+} from "./helpers/construct-query-helper.ts";
 
 import { DebugMode, logResponse } from "./utils/error-handling-utils.ts";
 import {
@@ -51,7 +53,6 @@ export class Bot {
   private query_retries: number;
 
   private first_created: string;
-  private hand_history: ChatCompletionMessageParam | any;
 
   private table!: Table;
   private game!: Game;
@@ -76,7 +77,6 @@ export class Bot {
     this.query_retries = query_retries;
 
     this.first_created = "";
-    this.hand_history = [];
   }
 
   public async run() {
@@ -99,7 +99,6 @@ export class Bot {
       } catch (err) {
         console.error("[Bot] Error during hand, skipping to next hand:", err);
       }
-      this.hand_history = [];
       this.table.nextHand();
     }
   }
@@ -270,6 +269,11 @@ export class Bot {
               continue;
             }
             lastQuerySent = query;
+
+            const hand_history_block = extractHandHistoryBlock(query);
+            if (hand_history_block) {
+              console.log(`[Bot] Hand history block:\n${hand_history_block}`);
+            }
 
             // query chatGPT and make action
             const bot_action = await this.queryBotAction(
@@ -481,17 +485,12 @@ export class Bot {
       console.log(
         `[AI] Requesting action (attempt ${retry_counter + 1}/${retries + 1})...`,
       );
-      const ai_response = await this.ai_service.query(query, this.hand_history);
+      const ai_response = await this.ai_service.query(query, []);
       console.log(
         `[AI] Response: ${ai_response.bot_action.action_str}${ai_response.bot_action.bet_size_in_BBs ? " " + ai_response.bot_action.bet_size_in_BBs + " BB" : ""}`,
       );
-      this.hand_history = ai_response.prev_messages;
 
       if (await this.isValidBotAction(ai_response.bot_action)) {
-        // only push to hand history if the choice made is valid
-        if (ai_response.curr_message) {
-          this.hand_history.push(ai_response.curr_message);
-        }
         return ai_response.bot_action;
       }
       console.log("[AI] Invalid action, retrying...");
