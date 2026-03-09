@@ -3,7 +3,6 @@ import { rankBoard } from "phe";
 import { Game } from "../models/game.ts";
 import { PlayerAction } from "../models/player-action.ts";
 import { Table } from "../models/table.ts";
-import { Action } from "../utils/log-processing-utils.ts";
 
 export function constructQuery(game: Game): string {
   const table = game.getTable();
@@ -22,7 +21,6 @@ export function constructQuery(game: Game): string {
   const pot_size = table.getPot();
   const hand_action_history = table.getHandActionHistory();
   const player_positions = table.getPlayerPositions();
-  const estimated_pot_size = estimatePotSizeInBBs(hand_action_history, street);
 
   let query = "";
 
@@ -36,7 +34,7 @@ export function constructQuery(game: Game): string {
     defineStacks(player_stacks, player_positions, hero_id),
     "\n",
   );
-  query = query.concat(definePotSize(pot_size, estimated_pot_size), `\n`);
+  query = query.concat(definePotSize(pot_size, street), `\n`);
   query = query.concat(
     defineActionHistory(hand_action_history, street, table),
     "\n",
@@ -178,60 +176,13 @@ function defineStacks(
 
 function definePotSize(
   displayed_pot_size_in_BBs: number,
-  estimated_pot_size_in_BBs: number,
+  street: string,
 ): string {
-  if (estimated_pot_size_in_BBs > displayed_pot_size_in_BBs + 0.01) {
-    return `The current pot size is approximately ${estimated_pot_size_in_BBs} BB based on the betting history. The UI-reported pot currently reads ${displayed_pot_size_in_BBs} BB, so use the betting history as the source of truth.`;
+  if (!street) {
+    return `The displayed pot carried into this street is ${displayed_pot_size_in_BBs} BB. Preflop this display excludes blinds and any action from the current street, so it is expected to be 0 BB before the flop.`;
   }
 
-  return `The current displayed pot size is ${displayed_pot_size_in_BBs} BB. This includes blinds and any completed actions that are already in the middle before my next decision.`;
-}
-
-function estimatePotSizeInBBs(
-  hand_action_history: Array<PlayerAction>,
-  current_street: string,
-): number {
-  const effective_current_street = normalizeStreet(current_street);
-  const street_order = ["preflop", "flop", "turn", "river"];
-  const current_street_index = street_order.indexOf(effective_current_street);
-  const streets_to_include =
-    current_street_index === -1
-      ? ["preflop"]
-      : street_order.slice(0, current_street_index + 1);
-
-  let pot_size_in_BBs = 0;
-
-  for (const street_name of streets_to_include) {
-    const committed_by_player = new Map<string, number>();
-    const street_actions = hand_action_history.filter(
-      (player_action) =>
-        normalizeStreet(player_action.getStreet()) === street_name,
-    );
-
-    for (const player_action of street_actions) {
-      const action = player_action.getAction();
-      if (
-        action !== Action.POST &&
-        action !== Action.CALL &&
-        action !== Action.BET &&
-        action !== Action.RAISE
-      ) {
-        continue;
-      }
-
-      const player_id = player_action.getPlayerId();
-      const previous_committed = committed_by_player.get(player_id) ?? 0;
-      const next_committed = Math.max(
-        previous_committed,
-        player_action.getBetAmount(),
-      );
-
-      pot_size_in_BBs += next_committed - previous_committed;
-      committed_by_player.set(player_id, next_committed);
-    }
-  }
-
-  return Math.round(pot_size_in_BBs * 100) / 100;
+  return `The displayed pot carried into the ${street} is ${displayed_pot_size_in_BBs} BB. This reflects money carried over from previous streets and does not include bets or calls made on the current street.`;
 }
 
 function normalizeStreet(street: string): string {

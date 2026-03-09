@@ -23,7 +23,7 @@ import {
   constructQuery,
   defineRank,
 } from "../../app/helpers/construct-query-helper.ts";
-import { shouldResetForEmptyBoard } from "../../app/helpers/hand-state-helper.ts";
+import { shouldResetForStaleBoard } from "../../app/helpers/hand-state-helper.ts";
 import { Data } from "../../app/interfaces/log-processing-interfaces.ts";
 
 describe("query service test", async () => {
@@ -176,7 +176,7 @@ describe("constructQuery action history", () => {
     db_service.close();
   });
 
-  it("derives preflop pot size from action history when the displayed pot lags", async () => {
+  it("describes the preflop pot display as excluding blinds and current-street action", async () => {
     const db_service = new DBService(":memory:");
     await db_service.init();
     await db_service.createTables();
@@ -249,13 +249,13 @@ describe("constructQuery action history", () => {
     const query = constructQuery(game);
 
     expect(query).to.contain(
-      "The current pot size is approximately 2.5 BB based on the betting history. The UI-reported pot currently reads 0 BB, so use the betting history as the source of truth.",
+      "The displayed pot carried into this street is 0 BB. Preflop this display excludes blinds and any action from the current street, so it is expected to be 0 BB before the flop.",
     );
 
     db_service.close();
   });
 
-  it("detects stale postflop state when a new request has an empty board", async () => {
+  it("detects stale postflop state only when the extension marks the board as stale", async () => {
     const db_service = new DBService(":memory:");
     await db_service.init();
     await db_service.createTables();
@@ -270,15 +270,20 @@ describe("constructQuery action history", () => {
       new PlayerAction("villain-id", "bets", 7.5, "river"),
     );
 
-    expect(shouldResetForEmptyBoard(table, [])).to.equal(true);
-    expect(shouldResetForEmptyBoard(table, ["7s", "9s", "Ts"])).to.equal(false);
+    expect(shouldResetForStaleBoard(table, "stale-previous-hand")).to.equal(
+      true,
+    );
+    expect(shouldResetForStaleBoard(table, "empty")).to.equal(false);
+    expect(shouldResetForStaleBoard(table, "visible")).to.equal(false);
 
     table.nextHand();
     table.updatePlayerActions(
       new PlayerAction("villain-id", "posts", 0.5, "preflop"),
     );
 
-    expect(shouldResetForEmptyBoard(table, [])).to.equal(false);
+    expect(shouldResetForStaleBoard(table, "stale-previous-hand")).to.equal(
+      false,
+    );
 
     db_service.close();
   });

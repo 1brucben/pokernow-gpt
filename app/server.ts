@@ -20,7 +20,7 @@ import { LogService } from "./services/log-service.ts";
 import { DBService } from "./services/db-service.ts";
 import { PlayerService } from "./services/player-service.ts";
 import { AIServiceFactory } from "./helpers/ai-service-factory.ts";
-import { shouldResetForEmptyBoard } from "./helpers/hand-state-helper.ts";
+import { shouldResetForStaleBoard } from "./helpers/hand-state-helper.ts";
 
 import {
   constructQuery,
@@ -218,10 +218,11 @@ export class BotServer {
           available_actions,
           hand_num,
           community_cards,
+          community_cards_state,
         } = req.body;
 
         console.log(
-          `[Server] Action request — hand: ${hand}, community_cards: ${JSON.stringify(community_cards)}, available: ${JSON.stringify(available_actions)}`,
+          `[Server] Action request — hand: ${hand}, community_cards_state: ${community_cards_state}, community_cards: ${JSON.stringify(community_cards)}, available: ${JSON.stringify(available_actions)}`,
         );
 
         // Auto-detect new hand if hand-start was missed
@@ -237,9 +238,9 @@ export class BotServer {
           this.resetProcessedLogsForNewHand();
         }
 
-        if (shouldResetForEmptyBoard(this.table, community_cards)) {
+        if (shouldResetForStaleBoard(this.table, community_cards_state)) {
           console.log(
-            "[Server] Empty-board request arrived with stale postflop state. Auto-resetting hand state.",
+            "[Server] Stale previous-hand board detected. Auto-resetting hand state.",
           );
           this.table.nextHand();
           this.table.setNumPlayers(num_players);
@@ -301,16 +302,16 @@ export class BotServer {
             `[Server] State after log processing: street=${this.table.getStreet() || "preflop"}, runout=${this.table.getRunout() || "none"}, history_actions=${this.table.getHandActionHistory().length}, current_actions=${this.table.getPlayerActions().length}, players_in_pot=${this.table.getPlayersInPot()}`,
           );
 
-          if (shouldResetForEmptyBoard(this.table, community_cards)) {
+          if (shouldResetForStaleBoard(this.table, community_cards_state)) {
             console.log(
-              "[Server] Processed state is inconsistent with an empty board. Resetting hand state and requesting retry.",
+              "[Server] Processed state is inconsistent with a stale previous-hand board. Resetting hand state and requesting retry.",
             );
             this.table.nextHand();
             this.table.setNumPlayers(num_players);
             this.table.setPlayersInPot(num_players);
             this.resetProcessedLogsForNewHand();
             return sendRetry(
-              "Processed state was inconsistent with the empty board.",
+              "Processed state was inconsistent with a stale previous-hand board.",
             );
           } else if (!this.isTableReadyForQuery()) {
             return sendRetry(

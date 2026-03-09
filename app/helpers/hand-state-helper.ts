@@ -15,13 +15,11 @@ export function hasPostflopState(table: Table): boolean {
     .some((player_action) => player_action.getStreet() !== "preflop");
 }
 
-export function shouldResetForEmptyBoard(
+export function shouldResetForStaleBoard(
   table: Table,
-  community_cards: string[] | undefined,
+  community_cards_state: string | undefined,
 ): boolean {
   return (
-    Array.isArray(community_cards) &&
-    community_cards.length === 0 &&
-    hasPostflopState(table)
+    community_cards_state === "stale-previous-hand" && hasPostflopState(table)
   );
 }

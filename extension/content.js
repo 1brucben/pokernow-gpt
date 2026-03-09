@@ -99,6 +99,48 @@
     return cards;
   }
 
+  function inspectCommunityCardDOM() {
+    const selectors = [
+      ".table-cards > .table-card",
+      ".table-cards .table-card",
+      ".community-cards .card",
+      ".table-card",
+    ];
+
+    const selectorSummary = selectors.map((selector) => {
+      const nodes = Array.from(document.querySelectorAll(selector));
+      const samples = nodes.slice(0, 5).map((node) => {
+        const value = node.querySelector(".value")?.textContent?.trim() || "";
+        const suit = node.querySelector(".sub-suit")?.textContent?.trim() || "";
+        return {
+          text: node.textContent?.trim() || "",
+          value,
+          suit,
+          className: node.className,
+        };
+      });
+      return {
+        selector,
+        count: nodes.length,
+        samples,
+      };
+    });
+
+    const tableCardsHtml =
+      document.querySelector(".table-cards")?.innerHTML?.substring(0, 800) ||
+      null;
+    const communityCardsHtml =
+      document
+        .querySelector(".community-cards")
+        ?.innerHTML?.substring(0, 800) || null;
+
+    return {
+      selectorSummary,
+      tableCardsHtml,
+      communityCardsHtml,
+    };
+  }
+
   function getCommunityCards() {
     const cards = [];
     // Try multiple selectors in case PokerNow's DOM structure varies
@@ -121,14 +163,10 @@
       }
     }
     if (cards.length === 0) {
-      // Fallback: try reading card values from any visible board area
-      const boardArea = document.querySelector(".table-cards");
-      if (boardArea) {
-        console.log(
-          "[PokerBot] Board area found but no cards matched. innerHTML:",
-          boardArea.innerHTML.substring(0, 500),
-        );
-      }
+      console.log(
+        "[PokerBot] Community card detection returned no cards.",
+        inspectCommunityCardDOM(),
+      );
     }
     return cards;
   }
@@ -136,7 +174,7 @@
   // Returns community cards, filtering out stale cards from the previous hand.
   // After a new hand is detected (hero cards change), community cards
   // are treated as empty until the DOM actually shows different cards.
-  function getCleanCommunityCards() {
+  function getCommunityCardsPayload() {
     const raw = getCommunityCards();
     console.log(
       "[PokerBot] Raw community cards:",
@@ -144,15 +182,22 @@
       "Stale snapshot:",
       staleCommunitySnapshot,
     );
-    if (staleCommunitySnapshot !== null) {
+    if (staleCommunitySnapshot !== null && staleCommunitySnapshot.length > 0) {
       // Still showing the same cards as when the new hand was detected → stale
       if (raw.join(",") === staleCommunitySnapshot) {
-        return [];
+        return {
+          cards: [],
+          state: "stale-previous-hand",
+        };
       }
       // Cards changed → real new community cards, clear the snapshot
       staleCommunitySnapshot = null;
     }
-    return raw;
+
+    return {
+      cards: raw,
+      state: raw.length > 0 ? "visible" : "empty",
+    };
   }
 
   function getStackSize() {
@@ -378,15 +423,28 @@
     if (lastHeroHandKey && handKey && handKey !== lastHeroHandKey) {
       currentHandNum = (currentHandNum || 0) + 1;
       // Snapshot current DOM community cards as stale
-      staleCommunitySnapshot = getCommunityCards().join(",");
+      const boardSnapshot = getCommunityCards().join(",");
+      staleCommunitySnapshot = boardSnapshot.length > 0 ? boardSnapshot : null;
       console.log(
         "[PokerBot] New hand detected via card change, hand #" + currentHandNum,
+        "stale snapshot:",
+        staleCommunitySnapshot,
       );
     }
     if (handKey) lastHeroHandKey = handKey;
 
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT);
+    const communityCardsPayload = getCommunityCardsPayload();
+    console.log("[PokerBot] Request payload summary:", {
+      hand,
+      handKey,
+      currentHandNum,
+      communityCardsState: communityCardsPayload.state,
+      communityCards: communityCardsPayload.cards,
+      staleCommunitySnapshot,
+      availableActions: getAvailableActions(),
+    });
 
     try {
       const res = await fetch(`${BACKEND_URL}/api/action`, {
@@ -403,7 +461,8 @@
           small_blind: gameInfo.small_blind,
           available_actions: getAvailableActions(),
           hand_num: currentHandNum,
-          community_cards: getCleanCommunityCards(),
+          community_cards: communityCardsPayload.cards,
+          community_cards_state: communityCardsPayload.state,
         }),
       });
       clearTimeout(timeoutId);
